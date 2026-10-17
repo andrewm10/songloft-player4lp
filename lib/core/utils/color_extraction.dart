@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:palette_generator/palette_generator.dart';
 
 import '../../shared/models/song.dart';
+import '../network/base_url_provider.dart';
 import 'url_helper.dart';
 
 /// 封面颜色调色板
@@ -83,8 +84,16 @@ final coverColorsProvider = FutureProvider.family<CoverPalette?, String?>((
 ) async {
   if (coverUrl == null || coverUrl.isEmpty) return null;
 
+  // A relative song path can exist on multiple servers. Re-resolve it when the
+  // active server changes and key the cache by the actual authenticated resource.
+  ref.watch(resolvedBaseUrlProvider);
+  const paletteDecodeWidth = 100;
+  final displayUrl = UrlHelper.buildCoverUrl(
+    coverUrl,
+    width: paletteDecodeWidth,
+  );
   // 检查缓存
-  final cached = _colorCache.get(coverUrl);
+  final cached = _colorCache.get(displayUrl);
   if (cached != null) return cached;
 
   try {
@@ -93,15 +102,17 @@ final coverColorsProvider = FutureProvider.family<CoverPalette?, String?>((
     // （3~4MB）。否则 NetworkImage 全尺寸下载 + 主 isolate 解码会在弱网/NAS 拥堵
     // 场景下阻塞主线程触发 ANR（songloft-org/songloft-player#39）。该路径是
     // d3012f6（显示控件走 ?w=）遗漏的取色入口，故在此补齐。
-    const paletteDecodeWidth = 100;
-    final displayUrl = UrlHelper.buildCoverUrl(
-      coverUrl,
-      width: paletteDecodeWidth,
-    );
     final paletteGenerator = await PaletteGenerator.fromImageProvider(
-      NetworkImage(displayUrl),
+      ResizeImage.resizeIfNeeded(
+        paletteDecodeWidth,
+        null,
+        NetworkImage(displayUrl),
+      ),
       size: const Size(100, 100), // 缩小尺寸加速提取
       maximumColorCount: 16,
+      // Backgrounds must represent the artwork, including warm browns and
+      // monochrome covers that the package's default accent filter discards.
+      filters: const [],
     );
 
     // 基于 darkMutedColor（遮罩色）的亮度决定前景色
@@ -120,7 +131,7 @@ final coverColorsProvider = FutureProvider.family<CoverPalette?, String?>((
     );
 
     // 写入缓存
-    _colorCache.put(coverUrl, palette);
+    _colorCache.put(displayUrl, palette);
     return palette;
   } catch (e) {
     debugPrint('[ColorExtraction] Failed to extract colors from $coverUrl: $e');

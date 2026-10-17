@@ -57,24 +57,42 @@ class PlayerBackdropColors {
     final gradient = extension?.playerGradientColors;
     // Missing/loading/failed covers all use the theme, never metadata hash colors.
     final top =
-        palette?.dominantColor ?? gradient?.firstOrNull ?? scheme.primary;
+        palette?.vibrantColor ??
+        palette?.dominantColor ??
+        gradient?.firstOrNull ??
+        scheme.primary;
     final bottom =
-        palette?.mutedColor ?? gradient?.lastOrNull ?? scheme.tertiary;
+        palette?.mutedColor ??
+        palette?.vibrantColor ??
+        palette?.dominantColor ??
+        gradient?.lastOrNull ??
+        scheme.tertiary;
     final dark = theme.brightness == Brightness.dark;
     Color tint(Color color, double opacity) =>
         Color.alphaBlend(color.withValues(alpha: opacity), scheme.surface);
+    final coverOpacity = dark ? .24 : .28;
     final background =
         highContrast
             ? [scheme.surface, scheme.surface]
-            : [tint(top, dark ? .18 : .12), tint(bottom, dark ? .08 : .04)];
+            : [
+              tint(top, palette == null ? (dark ? .18 : .12) : coverOpacity),
+              tint(bottom, palette == null ? (dark ? .08 : .04) : .18),
+            ];
+    // Text updates immediately while AnimatedContainer can still show any prior
+    // cover. Include both cover extremes so changing songs remains readable.
+    final bounds = [
+      ...background,
+      tint(Colors.black, coverOpacity),
+      tint(Colors.white, coverOpacity),
+    ];
     return PlayerBackdropColors(
       background: background,
       // Keep an accent hue where possible, strengthening it toward onSurface.
-      active: _readable(scheme.primary, scheme.onSurface, background, 7),
+      active: _readable(scheme.primary, scheme.onSurface, bounds, 7),
       secondary: _readable(
         Color.lerp(background.first, scheme.onSurface, .68)!,
         scheme.onSurface,
-        background,
+        bounds,
         highContrast ? 7 : 4.5,
       ),
     );
@@ -97,7 +115,16 @@ class PlayerBackdropColors {
         return candidate;
       }
     }
-    return foreground;
+    // A stronger cover wash can exceed onSurface's contrast headroom.
+    final extreme =
+        foreground.computeLuminance() > .5 ? Colors.white : Colors.black;
+    for (var step = 1; step <= 20; step++) {
+      final candidate = Color.lerp(foreground, extreme, step / 20)!;
+      if (backgrounds.every((bg) => _contrast(candidate, bg) >= minimum)) {
+        return candidate;
+      }
+    }
+    return extreme;
   }
 }
 

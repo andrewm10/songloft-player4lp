@@ -10,6 +10,13 @@ Include rule, scope, full owner/repo#number, failure/fix commit SHAs, actual val
 
 ## Entries
 
+### LYRIC-003: Verify cover color separation independently of text contrast
+
+- Scope: Flutter cover extraction and mobile/desktop player backgrounds, songloft-org/songloft#523 feedback on 2026-10-17.
+- Evidence: baseline `18b50cbca02a7470279ddcd04907f71365140a57` passed text contrast tests while light backgrounds retained only 12%→4% artwork; the lower end reverted to the theme without mutedColor. Real HTTP/PNG regressions also confirmed discarded warm/monochrome colors and server identity missing from relative cache keys. Both extraction tests and both separation tests failed on the old implementation.
+- Done right: verify both gradient ends, real image decoding and text contrast separately. Stronger washes must include the previous cover during song animations when computing foregrounds. Existing contrast/transition tests caught the first stronger wash; all 12 related tests pass after extending bounds. Full checks and device limits are in the [record](docs/en/issue-523.md#2026-10-17--cover-colors-remain-too-subtle). Local defects do not establish the reporter's device cause.
+- Seen 1× (2026-10-17). Status: lesson; currently an uncommitted worktree.
+
 ### LYRIC-002: Check effective accessibility settings before diagnosing cover tinting
 
 - Scope: Flutter full-screen player; songloft-org/songloft#523 feedback on 2026-10-16.

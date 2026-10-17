@@ -63,6 +63,33 @@ void main() {
   for (final dark in [false, true]) {
     final theme = dark ? AppTheme.darkTheme() : AppTheme.lightTheme();
     final defaults = PlayerBackdropColors.fromTheme(theme);
+    test('cover hue remains visible across the whole backdrop ($dark)', () {
+      for (final mostlyBlack in [false, true]) {
+        final red = PlayerBackdropColors.fromTheme(
+          theme,
+          CoverPalette(
+            dominantColor: mostlyBlack ? Colors.black : Colors.red,
+            vibrantColor: mostlyBlack ? Colors.red : null,
+            onImageColor: Colors.white,
+          ),
+        );
+        final blue = PlayerBackdropColors.fromTheme(
+          theme,
+          CoverPalette(
+            dominantColor: mostlyBlack ? Colors.black : Colors.blue,
+            vibrantColor: mostlyBlack ? Colors.blue : null,
+            onImageColor: Colors.white,
+          ),
+        );
+        for (var i = 0; i < red.background.length; i++) {
+          final a = red.background[i];
+          final b = blue.background[i];
+          // At least 32 sRGB levels of hue separation, including the lower controls.
+          expect((a.r - b.r).abs() * 255, greaterThanOrEqualTo(32));
+          expect((a.b - b.b).abs() * 255, greaterThanOrEqualTo(32));
+        }
+      }
+    });
     test('cover extremes and transitions preserve readable text ($dark)', () {
       PlayerBackdropColors? previous;
       for (final color in [
