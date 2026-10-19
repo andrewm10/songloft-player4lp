@@ -1,11 +1,15 @@
 name: Build Songloft APK (Leapmotor 方控)
 
-# 在 fork 里 push 到 main/master/build-apk，或在 Actions 页手动 Run workflow 即自动出包。
+# 在 fork 里 push 到 main，或在 Actions 页手动 Run workflow 即自动出包。
 # runner 钉死 ubuntu-24.04，避免 ubuntu-latest 于 2026-10-19 起迁移到 Ubuntu 26 导致工具链突变。
 #
-# 重要：本工作流会自动在仓库内定位 pubspec.yaml（Flutter 工程根），无论从仓库哪一层都能找到。
-# 如果你 fork 的是父仓库 songloft-org/songloft（monorepo，clients/player 是未初始化的 git submodule），
-# 则仓库内没有 pubspec.yaml，本流程会直接报错并提示你改用 songloft-org/songloft-player。
+# 重要：请确认你 Fork 的是 Flutter 客户端仓库 songloft-org/songloft-player（根目录有 pubspec.yaml）。
+# 若 fork 的是父仓库 songloft-org/songloft（monorepo，clients/player 是未初始化的 git submodule），
+# 仓库内没有 pubspec.yaml，本流程会直接报错并提示改用 songloft-player。
+#
+# 本工作流严格对齐官方 .github/workflows/build-and-release.yml 的 build-android job（Flutter 3.44.6、
+# 不做 Go 后端、split-per-abi），仅在其基础上：① 拷贝方控补丁（LeapmotorMediaKeys.kt /
+# SongloftApplication.kt）；② 把产物改名为 songloft-leapmotor-*.apk。
 on:
   push:
     branches: [ main, master, build-apk ]
@@ -14,21 +18,22 @@ on:
 permissions:
   contents: read
 
+env:
+  # 与原版 build-and-release.yml 保持一致，使用官方验证过的稳定版本。
+  FLUTTER_VERSION: '3.44.6'
+
 jobs:
   build:
     name: Build release APK (arm64)
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    # 大依赖（media_kit / inappwebview / window_manager / home_widget 等）在 CI 默认 Gradle 堆
-    # 内存（约 2G）下做 release 打包极易 OOM，表现为 flutter 进程退出 1、被归到
-    # compileFlutterBuildRelease。这里显式提到 4G 规避。
+    # 多插件（media_kit / inappwebview / window_manager / home_widget 等）release 打包有 OOM 风险，
+    # 显式提到 4G 兜底（与官方默认行为不冲突）。若仍 OOM 可调到 -Xmx6g。
     env:
       GRADLE_OPTS: "-Xmx4g -XX:MaxMetaspaceSize=512m"
     steps:
-      - name: Checkout (含 patch/ 与 .github/，递归拉取子模块)
+      - name: Checkout repo
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Set up JDK 17
         uses: actions/setup-java@v6
@@ -36,55 +41,26 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Flutter 3.41
+      - name: Set up Flutter ${{ env.FLUTTER_VERSION }}
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.41.0'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-
-      - name: Install Android SDK platforms, build-tools, NDK
-        run: |
-          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          export PATH="$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$PATH"
-          # compileSdk = flutter.compileSdkVersion（3.41 -> 35/36），两个都装保险
-          sdkmanager --install "platforms;android-35" "platforms;android-36" \
-                                 "build-tools;35.0.0" "build-tools;36.0.0" "platform-tools"
-          # NDK 用 Flutter 3.41 默认版本
-          sdkmanager --install "ndk;27.0.12077973"
-          yes | sdkmanager --licenses
-
       - name: Configure Flutter
-        run: |
-          flutter config --no-analytics
-          flutter config --android-sdk "${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          flutter doctor -v
+        run: flutter config --no-analytics
 
-      - name: Locate Flutter project root
-        id: locate
-        working-directory: ${{ github.workspace }}
+      - name: Verify Flutter project root
         run: |
-          set -e
-          PROJ=$(find . -path ./.git -prune -o -name pubspec.yaml -print | head -1)
-          if [ -z "$PROJ" ]; then
-            echo "::error::仓库内找不到 pubspec.yaml。"
+          if [ ! -f "$GITHUB_WORKSPACE/pubspec.yaml" ]; then
+            echo "::error::仓库根目录未找到 pubspec.yaml。"
             echo "::error::请确认你 Fork 的是 Flutter 客户端仓库 songloft-org/songloft-player（而不是父仓库 songloft-org/songloft）。"
             echo "::error::父仓库是 monorepo，clients/player 是未初始化的 git submodule，fork 后里面没有源码、也没有 pubspec.yaml。"
             exit 1
           fi
-          PROJ_DIR=$(realpath "$(dirname "$PROJ")")
-          if [ ! -d "$PROJ_DIR/android" ]; then
-            echo "::error::在 $PROJ_DIR 找到 pubspec.yaml，但旁边没有 android/ 目录，不是标准 Flutter 工程。"
-            exit 1
-          fi
-          echo "Flutter 工程根目录: $PROJ_DIR"
-          echo "proj_dir=$PROJ_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Apply Leapmotor 方控 patch
-        working-directory: ${{ steps.locate.outputs.proj_dir }}
         run: |
           DST="android/app/src/main/kotlin/com/songloft/songloft_flutter"
           mkdir -p "$DST"
@@ -94,17 +70,57 @@ jobs:
           ls -l "$DST"
 
       - name: Flutter pub get
-        working-directory: ${{ steps.locate.outputs.proj_dir }}
         run: flutter pub get
 
-      - name: Build release APK (arm64, verbose)
-        working-directory: ${{ steps.locate.outputs.proj_dir }}
+      - name: Extract version from pubspec.yaml
+        id: version
+        run: |
+          PUBSPEC_VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="$PUBSPEC_VERSION"
+          else
+            VERSION="dev"
+          fi
+          BUILD_TIME=$(date -u '+%Y-%m-%d_%H:%M:%S')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_time=$BUILD_TIME" >> "$GITHUB_OUTPUT"
+
+      # 原生契约哈希：官方在 build 前执行，把 native_contract.json 烧进 APK（仅用于热更门控）。
+      # 该文件未被 pubspec 声明为资源，缺失只影响热更门控、不影响编译；且本 fork 无内嵌 Go 后端，
+      # go 哈希本就为空。脚本纯 bash（sha256sum/grep/python3，runner 均自带），此处按官方做法执行，
+      # 但若脚本缺失或异常则跳过，不阻断构建。
+      - name: Compute native contract hash (bake asset, optional)
+        continue-on-error: true
+        run: |
+          if [ -f scripts/compute_native_contract.sh ]; then
+            HASHES=$(./scripts/compute_native_contract.sh \
+              --write-asset android/app/src/main/assets/native_contract.json)
+            echo "native_contract.json = $HASHES"
+          else
+            echo "compute_native_contract.sh 不存在，跳过（不影响编译）"
+          fi
+
+      - name: Build release APK (split-per-abi)
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -o pipefail
-          flutter build apk --release --target-platform android-arm64 --verbose 2>&1 | tee "$RUNNER_TEMP/songloft-build.log"
+          GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+          echo "GIT_COMMIT=$GIT_COMMIT"
+          flutter build apk --release --split-per-abi \
+            --dart-define=FRONTEND_VERSION=${{ steps.version.outputs.version }} \
+            --dart-define=FRONTEND_BUILD_TIME=${{ steps.version.outputs.build_time }} \
+            --dart-define=FRONTEND_GIT_COMMIT=$GIT_COMMIT \
+            --dart-define=FLUTTER_BINDING=${{ env.FLUTTER_VERSION }} \
+            --dart-define=TRACELY_APP_ID=${{ secrets.TRACELY_APP_ID }} \
+            --dart-define=TRACELY_APP_SECRET=${{ secrets.TRACELY_APP_SECRET }} \
+            --dart-define=TRACELY_HOST=${{ secrets.TRACELY_HOST }} \
+            2>&1 | tee "$RUNNER_TEMP/songloft-build.log"
 
-      - name: Upload build log (always)
-        if: always()
+      - name: Upload build log (on failure)
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: build-log
@@ -115,12 +131,22 @@ jobs:
         if: failure()
         run: |
           echo "===== 构建日志中首个错误附近内容 ====="
-          grep -n -i -E "error:|what went wrong|exception|failed for task|outofmemory|gc overhead|could not|unresolved" "$RUNNER_TEMP/songloft-build.log" | head -40 || echo "(no grep matches)"
+          grep -n -i -E "error:|what went wrong|exception|failed for task|outofmemory|gc overhead|could not|unresolved|conflicting" "$RUNNER_TEMP/songloft-build.log" | head -40 || echo "(no grep matches)"
 
-      - name: Upload APK
+      - name: Collect APK
+        if: success()
+        run: |
+          mkdir -p apk-output
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk apk-output/songloft-leapmotor-arm64.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk apk-output/songloft-leapmotor-armeabi-v7a.apk 2>/dev/null || true
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk apk-output/songloft-leapmotor-x86_64.apk 2>/dev/null || true
+          echo "=== APK 产物 ==="
+          ls -lh apk-output/
+
+      - name: Upload APK artifact
         if: success()
         uses: actions/upload-artifact@v7
         with:
           name: songloft-leapmotor-apk
-          path: ${{ steps.locate.outputs.proj_dir }}/build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
+          path: apk-output/*.apk
+          retention-days: 7
