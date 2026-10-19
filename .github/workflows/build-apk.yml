@@ -157,7 +157,7 @@ jobs:
       # 构建「按 CPU 架构拆分」的 APK：用 --split-per-abi 一次性产出各架构包，
       # 仅保留车机所需的 ARM 架构（arm64-v8a 64 位 / armeabi-v7a 32 位），剔除 x86_64 模拟器包。
       # 每个包体积更小，用户按车机芯片选对应文件下载即可，避免通用包（arm+arm64 合并）臃肿、下载慢。
-      - name: Build release APK (split per-ABI: arm64-v8a / armeabi-v7a)
+      - name: "Build release APK (split per-ABI: arm64-v8a / armeabi-v7a)"
         id: build
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
