@@ -1,0 +1,66 @@
+name: Sync upstream & build
+
+# 自动跟随上游：每天 UTC 03:00 检查 songloft-org/songloft-player 是否有更新；
+# 有更新则合并、重打方控补丁、推回本 fork，推送会触发 build-apk.yml 自动出包。
+# 也可在 Actions 页手动 Run workflow 立即同步。
+# 说明：GitHub cron 为 UTC 时间；如需更高频可改下面 cron 表达式
+# （字段：分 时 日 月 周，例如 "0 */6 * * *" 为每 6 小时一次）。
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # 需要写权限把上游合并推回 fork
+
+jobs:
+  sync:
+    name: Sync upstream & trigger build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout fork (含 patch/ 与 .github/)
+        uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+      - name: Add upstream remote & fetch
+        run: |
+          UP="https://github.com/songloft-org/songloft-player.git"
+          git remote add upstream "$UP" 2>/dev/null || git remote set-url upstream "$UP"
+          git fetch upstream --tags
+
+      - name: Merge upstream/main (冲突统一取上游，随后重打补丁)
+        run: |
+          git merge upstream/main -X theirs --no-edit || {
+            echo "::error::合并上游出现无法自动解决的冲突，需人工处理（可到 Actions 查看具体冲突文件）。"
+            exit 1
+          }
+
+      - name: Re-apply Leapmotor 方控 patch
+        run: |
+          DST="android/app/src/main/kotlin/com/songloft/songloft_flutter"
+          if [ -d "$DST" ]; then
+            cp patch/LeapmotorMediaKeys.kt "$DST/" || true
+            cp patch/SongloftApplication.kt "$DST/" || true
+            echo "Re-applied 方控 patch into $DST"
+          else
+            echo "::warning::未找到 $DST，跳过补丁拷贝（请确认仓库结构未变）。"
+          fi
+
+      - name: Commit & push if changed (否则跳过，不触发构建)
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "上游无更新，跳过推送与构建。"
+            exit 0
+          fi
+          git commit -m "chore: sync upstream songloft-player + reapply Leapmotor 方控 patch"
+          git push origin HEAD:${{ github.ref_name }}
+          echo "已推送合并，build-apk.yml 将自动触发并出包。"
