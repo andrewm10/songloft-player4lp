@@ -108,10 +108,30 @@ jobs:
         # 彻底清掉 build/.dart_tool 等，避免仓库内残留的旧 shared_preferences 产物参与本次构建。
         run: flutter clean
 
+      # 删掉（可能随仓库提交的）pubspec.lock 再 pub get。
+      # 原因：实测仅靠 cache:false + flutter clean **没能**消除
+      #   NoSuchMethodError: SharedPreferencesApiRegistrar.getAll(...Continuation)
+      # 若仓库提交了 pubspec.lock，pub get 会沿用锁定的旧版本组合，可能把
+      # shared_preferences(Dart 侧，新 Pigeon API) 与 shared_preferences_android(原生 AAR，旧 API)
+      # 锁成互不匹配的组合。删 lock 可强制重新解析出一套自洽的版本
+      # （pubspec.yaml 里已有的 dependency_overrides 仍然生效，不会被跳过）。
+      - name: Drop pubspec.lock (强制重新解析依赖版本，修复 Dart/原生版本错配)
+        run: |
+          if [ -f pubspec.lock ]; then
+            rm -f pubspec.lock
+            echo "已删除仓库内的 pubspec.lock，强制重新解析依赖版本"
+          else
+            echo "仓库内无 pubspec.lock，直接解析"
+          fi
+
       - name: Flutter pub get
-        # 全新解析依赖：确保 shared_preferences(Dart) 与 shared_preferences_android(Native AAR)
-        # 取到相互匹配的版本，消除 NoSuchMethodError: SharedPreferencesApiRegistrar.getAll。
         run: flutter pub get
+
+      - name: Print resolved plugin versions (shared_preferences 版本诊断)
+        run: |
+          echo "=== shared_preferences 系列实际解析版本（诊断 Dart/原生是否错配）==="
+          grep -A8 -E '^  shared_preferences(_android)?:$' pubspec.lock \
+            | grep -E 'name:|version:' || echo "(pubspec.lock 中未找到 shared_preferences 条目，请人工确认依赖)"
 
       # 版本号跟随上游源码：直接取 pubspec.yaml 的 version 字段（去掉 +build 号）。
       # 例如上游 version: 2.13.3+1 → Release tag = 2.13.3。
