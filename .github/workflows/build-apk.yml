@@ -1,19 +1,28 @@
 name: Build Songloft APK (Leapmotor 方控)
 
 # 在 fork 里 push 到 main，或在 Actions 页手动 Run workflow 即自动出包并发布到 Releases。
-# runner 钉死 ubuntu-24.04，避免 ubuntu-latest 于 2026-10-19 起迁移到 Ubuntu 26 导致工具链突变。
+# runner 对齐官方用 ubuntu-latest（当前即 Ubuntu 24.04）。
 #
 # 重要：请确认你 Fork 的是 Flutter 客户端仓库 songloft-org/songloft-player（根目录有 pubspec.yaml）。
 # 若 fork 的是父仓库 songloft-org/songloft（monorepo，clients/player 是未初始化的 git submodule），
 # 仓库内没有 pubspec.yaml，本流程会直接报错并提示改用 songloft-player。
 #
 # 本工作流对齐官方 .github/workflows/build-and-release.yml 的 build-android job（Flutter 3.44.6、
-# 不做 Go 后端），并参照其 release 段用 gh CLI 发布；仅做三处面向方控的改造：
+# 不做 Go 后端），并参照其 release 段用 gh CLI 发布。除三处面向方控的改造外，已逐项对齐官方构建细节：
+# 方控改造：
 #   ① 拷贝方控补丁（Leapmotor24Wheel.kt / LeapmotorInitProvider.kt）并通过 ContentProvider 自动初始化，
 #      不再覆盖上游 SongloftApplication，从设计上免疫上游 Application 类改动；
-#   ② 构建「通用 APK」（flutter build apk --release，含 arm64 + arm32，单文件），
-#      避免车机 ABI 不匹配导致「装了打不开 / 不能进入」；
+#   ② 构建「按 CPU 架构拆分」的 APK（flutter build apk --release --split-per-abi，
+#      仅保留车机所需的 arm64-v8a / armeabi-v7a 两个 ARM 包，剔除 x86_64 模拟器包），
+#      每个包体积更小、按车机芯片选对应文件下载即可，避免通用包（arm+arm64 合并）臃肿、下载慢；
 #   ③ 版本号跟随上游源码（pubspec.yaml version 字段），每次构建滚动覆盖同名 Release。
+# 与官方对齐的构建细节（保证 App 运行正常）：
+#   - runner: ubuntu-latest（与官方一致）
+#   - setup-android（导出 ANDROID_HOME）+ flutter config --android-sdk，供热更补丁的 aapt 使用
+#   - Setup Android signing：解码 ANDROID_KEYSTORE_BASE64 为 release.jks，供 Gradle 签名
+#   - Compute native contract hash：必执行并把 native_contract.json 写进 assets（App 启动读取，缺失会卡死）
+#   - flutter_patcher 热更补丁：产出 patch-*.zip + manifest-*.json（按 ABI 遍历），随 Release 上传
+#   - version.json：设置页「检查客户端更新」dev 渠道精确比较用
 on:
   push:
     branches: [ main, master, build-apk ]
@@ -33,7 +42,7 @@ env:
 jobs:
   build-and-release:
     name: Build & Release APK (Leapmotor 方控)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
       # 多插件（media_kit / inappwebview / window_manager / home_widget 等）release 打包有 OOM 风险，
@@ -56,8 +65,17 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Set up Android SDK
+        # 官方 build-android 用 setup-android 准备 Android SDK 并导出 ANDROID_HOME，
+        # 后续热更补丁步骤需靠 ANDROID_HOME/build-tools 下的 aapt 读取各 ABI APK 的 versionCode。
+        uses: android-actions/setup-android@v3
+
       - name: Configure Flutter
-        run: flutter config --no-analytics
+        run: |
+          flutter config --no-analytics
+          if [ -n "$ANDROID_HOME" ]; then
+            flutter config --android-sdk "$ANDROID_HOME"
+          fi
 
       - name: Verify Flutter project root
         run: |
@@ -94,22 +112,52 @@ jobs:
           echo "version=$PUBSPEC_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_time=$BUILD_TIME" >> "$GITHUB_OUTPUT"
 
-      # 原生契约哈希：官方在 build 前执行（仅用于热更门控，不影响编译）。
-      # 标准版无内嵌 Go 后端，go 哈希本就为空；脚本若不存在或异常则跳过，不阻断构建。
-      - name: Compute native contract hash (optional)
-        continue-on-error: true
+      # 对齐官方 build-android：把仓库 Secret ANDROID_KEYSTORE_BASE64 解码为 jks，
+      # 并通过 GITHUB_ENV 导出 ANDROID_KEYSTORE_PATH，供后续 build 步骤的 Gradle 签名使用。
+      # 若未配置该 Secret 则跳过（build 会回退到默认 debug 签名，APK 仍可正常安装）。
+      - name: Setup Android signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          if [ -f scripts/compute_native_contract.sh ]; then
-            ./scripts/compute_native_contract.sh \
-              --write-asset android/app/src/main/assets/native_contract.json || true
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "已解码签名 keystore -> $RUNNER_TEMP/release.jks"
           else
-            echo "compute_native_contract.sh 不存在，跳过（不影响编译）"
+            echo "未配置 ANDROID_KEYSTORE_BASE64，跳过自定义签名（使用默认 debug 签名）"
           fi
 
-      # 构建通用 APK：含 arm64-v8a + armeabi-v7a + x86_64，单文件。
-      # 车机有 32 位也有 64 位 SoC，通用包可在任意零跑车机上安装运行，避免 split-per-abi
-      # 只给单一 ABI 导致「装了打不开 / 不能进入」。
-      - name: Build release APK (universal)
+      # 原生契约哈希：官方在 pub get 之后、build 之前执行，并把结果写进资产
+      # android/app/src/main/assets/native_contract.json。该资产在 App 启动初始化时会被读取，
+      # 缺失会导致「正在启动中」卡死（这正是早先「能装但进不去」的最可能原因之一）。
+      # 故此处改为【必执行、始终保证资产存在】：脚本成功就用官方同款结果；脚本缺失或执行失败
+      # （如 runner 缺 Go 等依赖）则回退生成占位资产并告警，绝不再用 continue-on-error/||true 静默吞掉。
+      - name: Compute native contract hash (bake asset)
+        run: |
+          set -e
+          mkdir -p android/app/src/main/assets
+          if [ -f scripts/compute_native_contract.sh ]; then
+            if HASHES=$(./scripts/compute_native_contract.sh \
+                 --write-asset android/app/src/main/assets/native_contract.json); then
+              echo "native_contract.json 已生成（官方同款脚本）"
+              echo "native_contract hash = $HASHES"
+              DART_CONTRACT_HASH=$(printf '%s' "$HASHES" | sed -n 's/.*"dart":"\([a-f0-9]*\)".*/\1/p')
+              echo "DART_CONTRACT_HASH=$DART_CONTRACT_HASH" >> "$GITHUB_ENV"
+            else
+              echo "::warning:: compute_native_contract.sh 执行失败（可能缺 Go 等依赖），回退生成占位资产"
+              printf '{\n  "dart": "",\n  "go": ""\n}\n' > android/app/src/main/assets/native_contract.json
+            fi
+          else
+            echo "::warning:: 未找到 scripts/compute_native_contract.sh，生成占位 native_contract.json 避免缺资产卡死"
+            printf '{\n  "dart": "",\n  "go": ""\n}\n' > android/app/src/main/assets/native_contract.json
+          fi
+          echo "=== native_contract.json 内容 ==="
+          cat android/app/src/main/assets/native_contract.json
+
+      # 构建「按 CPU 架构拆分」的 APK：用 --split-per-abi 一次性产出各架构包，
+      # 仅保留车机所需的 ARM 架构（arm64-v8a 64 位 / armeabi-v7a 32 位），剔除 x86_64 模拟器包。
+      # 每个包体积更小，用户按车机芯片选对应文件下载即可，避免通用包（arm+arm64 合并）臃肿、下载慢。
+      - name: Build release APK (split per-ABI: arm64-v8a / armeabi-v7a)
         id: build
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -117,9 +165,11 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -o pipefail
+          mkdir -p apk-output
           GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
           echo "git_commit=$GIT_COMMIT" >> "$GITHUB_OUTPUT"
-          flutter build apk --release \
+          echo "GIT_COMMIT=$GIT_COMMIT" >> "$GITHUB_ENV"
+          flutter build apk --release --split-per-abi \
             --dart-define=FRONTEND_VERSION=${{ steps.version.outputs.version }} \
             --dart-define=FRONTEND_BUILD_TIME=${{ steps.version.outputs.build_time }} \
             --dart-define=FRONTEND_GIT_COMMIT=$GIT_COMMIT \
@@ -128,6 +178,65 @@ jobs:
             --dart-define=TRACELY_APP_SECRET=${{ secrets.TRACELY_APP_SECRET }} \
             --dart-define=TRACELY_HOST=${{ secrets.TRACELY_HOST }} \
             2>&1 | tee "$RUNNER_TEMP/songloft-build.log"
+
+          SRC=build/app/outputs/flutter-apk
+          # 仅保留车机所需的两个 ARM 包，剔除 x86_64（模拟器用，车机用不到）
+          mv "$SRC/app-arm64-v8a-release.apk"   apk-output/songloft-leapmotor-arm64-v8a.apk
+          mv "$SRC/app-armeabi-v7a-release.apk" apk-output/songloft-leapmotor-armeabi-v7a.apk
+          rm -f "$SRC/app-x86_64-release.apk"
+          echo "=== APK 产物（按 CPU 架构分拆，按需下载）==="
+          ls -lh apk-output/
+
+      # 前端热更补丁：对齐官方 build-android 的 Produce frontend hot-update patch assets。
+      # 用 aapt 读取各 ABI APK 的真实 versionCode（split-per-abi 后 versionCode 会被改写为 ABI 偏移值，
+      # 必须用 aapt 读真实值，写 pubspec 裸值会让客户端 versionCode 闸恒不通过），再调用 flutter_patcher:pack
+      # 产出 libapp.so 增量补丁 + manifest，供 App 内置热更机制拉取。
+      # 本 fork 只构建 arm64-v8a / armeabi-v7a，故仅遍历这两个 ABI（官方还含 x86_64，车机用不到已剔除）。
+      # 该步骤为「尽力而为」：若缺 flutter_patcher 或 aapt 则告警跳过，不影响 APK 发布（热更是可选增强）。
+      - name: Produce frontend hot-update patch assets
+        continue-on-error: true
+        env:
+          SEMVER: ${{ steps.version.outputs.version }}
+          BUILD_TIME: ${{ steps.version.outputs.build_time }}
+          FLUTTER_BINDING: ${{ env.FLUTTER_VERSION }}
+        run: |
+          set -e
+          # 与下方「发布 Release」使用同一 tag（版本号跟随上游 pubspec，非官方默认的 dev），
+          # 否则 patchUrl 指向的 releases/download/<TAG>/ 与实际 Release tag 不一致，App 拉热更会 404。
+          TAG="${{ steps.version.outputs.version }}"
+          BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -1)
+          if [ -z "$BUILD_TOOLS_DIR" ] && command -v sdkmanager >/dev/null 2>&1; then
+            echo "::warning:: 未找到 build-tools，尝试 sdkmanager 安装 build-tools;34.0.0"
+            sdkmanager "build-tools;34.0.0" >/dev/null 2>&1 || true
+            BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -1)
+          fi
+          if [ -z "$BUILD_TOOLS_DIR" ] || [ ! -x "$BUILD_TOOLS_DIR/aapt" ]; then
+            echo "::warning:: 无法定位 aapt（缺失 build-tools），跳过前端热更补丁生成（不影响 APK 发布）"
+            exit 0
+          fi
+          for abi in arm64-v8a armeabi-v7a; do
+            apk="build/app/outputs/flutter-apk/app-${abi}-release.apk"
+            [ -f "$apk" ] || { echo "跳过 $abi（无 APK）"; continue; }
+            ABI_VC=$("$BUILD_TOOLS_DIR/aapt" dump badging "$apk" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -1)
+            [ -n "$ABI_VC" ] || { echo "::warning:: 无法从 $apk 读取 versionCode，跳过 $abi 补丁"; continue; }
+            LABEL="${SEMVER}-${GIT_COMMIT}"
+            rm -rf dist
+            if dart run flutter_patcher:pack --apk "$apk" --version "$LABEL" \
+                 --target-version-code "$ABI_VC" --abi "$abi"; then
+              cp dist/patch.zip "apk-output/patch-${abi}-${GIT_COMMIT}.zip"
+              ZIP_MD5=$(md5sum "apk-output/patch-${abi}-${GIT_COMMIT}.zip" | cut -d' ' -f1)
+              printf '{\n  "hasUpdate": true,\n  "patch": {\n    "version": "%s",\n    "semanticVersion": "%s",\n    "gitCommit": "%s",\n    "flutterBinding": "%s",\n    "contractHash": "%s",\n    "targetVersionCode": %s,\n    "patchUrl": "https://github.com/%s/releases/download/%s/patch-%s-%s.zip",\n    "md5": "%s"\n  }\n}\n' \
+                "$LABEL" "$SEMVER" "$GIT_COMMIT" "$FLUTTER_BINDING" "${DART_CONTRACT_HASH:-}" \
+                "$ABI_VC" "$GITHUB_REPOSITORY" "$TAG" "$abi" "$GIT_COMMIT" "$ZIP_MD5" \
+                > "apk-output/manifest-${abi}.json"
+              echo "前端补丁 $abi: zip_md5=$ZIP_MD5 label=$LABEL versionCode=$ABI_VC"
+            else
+              echo "::warning:: flutter_patcher:pack 失败（ABI=$abi），跳过该 ABI 补丁"
+              continue
+            fi
+          done
+          echo "=== apk-output 现有内容 ==="
+          ls -lh apk-output/
 
       - name: Upload build log (on failure)
         if: failure()
@@ -143,21 +252,33 @@ jobs:
           echo "===== 构建日志中首个错误附近内容 ====="
           grep -n -i -E "error:|what went wrong|exception|failed for task|outofmemory|gc overhead|could not|unresolved|conflicting" "$RUNNER_TEMP/songloft-build.log" | head -40 || echo "(no grep matches)"
 
-      - name: Collect APK (universal)
-        if: success()
-        run: |
-          mkdir -p apk-output
-          cp build/app/outputs/flutter-apk/app-release.apk apk-output/songloft-leapmotor.apk
-          echo "=== APK 产物 ==="
-          ls -lh apk-output/
-
       - name: Upload APK artifact (backup)
         if: success()
         uses: actions/upload-artifact@v7
         with:
           name: songloft-leapmotor-apk
-          path: apk-output/*.apk
+          path: |
+            apk-output/*.apk
+            apk-output/patch-*.zip
+            apk-output/manifest-*.json
+            apk-output/version.json
           retention-days: 30
+
+      # version.json：对齐官方 build-android。设置页「检查客户端更新」的 dev 渠道靠它拿 git_commit /
+      # build_time 做精确比较(frontend_version_api._fetchDevVersionInfo)，缺失会导致 dev 客户端
+      # 永远显示「已是最新」。此处一并产出，避免该副作用（非启动卡死原因，但属标准产物）。
+      - name: Generate version.json
+        if: success()
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_TIME: ${{ steps.version.outputs.build_time }}
+          GIT_COMMIT: ${{ steps.build.outputs.git_commit }}
+        run: |
+          mkdir -p apk-output
+          printf '{\n  "version": "%s",\n  "git_commit": "%s",\n  "build_time": "%s"\n}\n' \
+            "$VERSION" "$GIT_COMMIT" "$BUILD_TIME" > apk-output/version.json
+          echo "=== version.json 内容 ==="
+          cat apk-output/version.json
 
       # 发布到 GitHub Releases（参照原版 build-and-release.yml 的 gh CLI 方案）。
       # 版本号跟随上游源码（TAG = pubspec version）；每次构建删除旧的同名 Release+tag 再重建，实现滚动。
@@ -186,9 +307,14 @@ jobs:
             - 协议：广播 com.leapmotor.steerwheelcontrol.media，int extra "action"（1/4/7）
             - 适用零跑 2024–2027 款（C10 及以后）
 
+            ## 选择对应架构（按 CPU 下载，体积更小）
+            - 64 位零跑车机（主流 2024+，如 C10 / C11 / C16 等）→ **songloft-leapmotor-arm64-v8a.apk**
+            - 32 位车机（较老 SoC）→ **songloft-leapmotor-armeabi-v7a.apk**
+            - 不确定就先下 arm64-v8a；装不上（提示 INSTALL_FAILED_CPU_ABI_INCOMPATIBLE）再换 armeabi-v7a。
+
             ## 安装到车机
-            车机开启「开发者选项 → USB 调试」后执行：
-                adb install -r songloft-leapmotor.apk
+            车机开启「开发者选项 → USB 调试」后执行（以 arm64 为例）：
+                adb install -r songloft-leapmotor-arm64-v8a.apk
 
             ## 验证方控
                 adb logcat -s Songloft-Leapmotor
@@ -207,5 +333,5 @@ jobs:
           if [[ "$GITHUB_REF" != refs/tags/* ]]; then
             ARGS+=(--target "$GITHUB_SHA")
           fi
-          gh release create "${ARGS[@]}" apk-output/*.apk
+          gh release create "${ARGS[@]}" apk-output/*
           echo "::notice::已发布到 Release: $TAG -> https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
