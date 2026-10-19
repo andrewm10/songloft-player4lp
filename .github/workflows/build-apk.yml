@@ -64,9 +64,10 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
-          # 关闭缓存：曾因 cache 复用陈旧的 shared_preferences_android AAR，导致 Dart 侧 Pigeon
-          # 调 getAll(Continuation) 而 Native AAR 仍是旧签名，启动抛 NoSuchMethodError 卡死在加载页。
-          # 关掉后每次全新解析+下载，杜绝这种插件 Dart/Native 版本错配。
+          # 关闭缓存：避免跨构建复用陈旧产物，保证每次都是全新解析。
+          # （注意：真正的卡启动根因是 shared_preferences_android 2.5.0 的 Pigeon JNI 改动，
+          #   已由下方「Pin shared_preferences_android to 2.4.28」步骤解决；
+          #   关缓存只是顺带的卫生习惯，别指望它单独解决问题。）
           cache: false
 
       - name: Set up Android SDK
@@ -104,34 +105,38 @@ jobs:
       - name: Inject Leapmotor provider & config receiver into AndroidManifest (幂等)
         run: python3 "$GITHUB_WORKSPACE/patch/inject_provider.py"
 
-      - name: Flutter clean (清除陈旧插件构建产物)
-        # 彻底清掉 build/.dart_tool 等，避免仓库内残留的旧 shared_preferences 产物参与本次构建。
+      - name: Flutter clean (清除陈旧构建产物)
+        # 清掉 build/ 与 .dart_tool，避免上一次构建的陈旧产物混入本次 APK。
+        # 注意：flutter clean **不会**清 pub-cache，也**不会**改 pubspec.lock，
+        # 单靠它无法规避 shared_preferences_android 2.5.0 的问题（版本钉住才管用）。
         run: flutter clean
 
-      # 删掉（可能随仓库提交的）pubspec.lock 再 pub get。
-      # 原因：实测仅靠 cache:false + flutter clean **没能**消除
-      #   NoSuchMethodError: SharedPreferencesApiRegistrar.getAll(...Continuation)
-      # 若仓库提交了 pubspec.lock，pub get 会沿用锁定的旧版本组合，可能把
-      # shared_preferences(Dart 侧，新 Pigeon API) 与 shared_preferences_android(原生 AAR，旧 API)
-      # 锁成互不匹配的组合。删 lock 可强制重新解析出一套自洽的版本
-      # （pubspec.yaml 里已有的 dependency_overrides 仍然生效，不会被跳过）。
-      - name: Drop pubspec.lock (强制重新解析依赖版本，修复 Dart/原生版本错配)
-        run: |
-          if [ -f pubspec.lock ]; then
-            rm -f pubspec.lock
-            echo "已删除仓库内的 pubspec.lock，强制重新解析依赖版本"
-          else
-            echo "仓库内无 pubspec.lock，直接解析"
-          fi
+      # 关键修复：把 shared_preferences_android 钉回 2.4.28（传统 Pigeon 通道实现）。
+      # 该包 2.5.0（2026-10-17 发布）把内部实现换成了 Pigeon JNI（jnigen 直接 JNI 调用），
+      # Dart 侧会去调原生 SharedPreferencesApiRegistrar.getAll(String, List, Continuation)；
+      # 一旦该签名不可用就抛
+      #   java.lang.NoSuchMethodError: ... SharedPreferencesApiRegistrar.getAll(...Continuation)
+      # 导致偏好读写全部失效 → 读不到 token / 服务器配置 → 卡在「正在启动中」（卡住，不崩溃）。
+      # 而 shared_preferences 2.5.6 对它的约束是 ^2.3.4，pub 默认解析到最新的 2.5.0，自动踩坑。
+      # 2.4.28 在 ^2.3.4 之内且仍是自洽的传统 Pigeon 通道实现。
+      #
+      # 注意：**不要**删 pubspec.lock「强制重新解析」——那样只会让 pub 解析到最新（含坏的 2.5.0）。
+      # 正确做法是用 dependency_overrides 显式钉版本，它优先级最高且一定能盖住上游的既有 override。
+      - name: Pin shared_preferences_android to 2.4.28 (绕开 2.5.0 的 Pigeon JNI 崩溃)
+        run: python3 "$GITHUB_WORKSPACE/patch/pin_shared_prefs.py"
 
       - name: Flutter pub get
         run: flutter pub get
 
       - name: Print resolved plugin versions (shared_preferences 版本诊断)
         run: |
-          echo "=== shared_preferences 系列实际解析版本（诊断 Dart/原生是否错配）==="
+          echo "=== shared_preferences 系列实际解析版本（应为 2.4.28，不要是 2.5.0）==="
           grep -A8 -E '^  shared_preferences(_android)?:$' pubspec.lock \
             | grep -E 'name:|version:' || echo "(pubspec.lock 中未找到 shared_preferences 条目，请人工确认依赖)"
+          echo "=== 若上面出现 2.5.0，说明钉版本未生效，请检查 patch/pin_shared_prefs.py 是否被上游改动影响 ==="
+          echo "=== 是否开启 R8 代码压缩（minifyEnabled=true 会剥离 JNI 才用的 Kotlin 方法）==="
+          grep -rn "minifyEnabled" android/app/build.gradle android/app/build.gradle.kts 2>/dev/null \
+            || echo "(未找到 build.gradle / build.gradle.kts 中的 minifyEnabled 配置)"
 
       # 版本号跟随上游源码：直接取 pubspec.yaml 的 version 字段（去掉 +build 号）。
       # 例如上游 version: 2.13.3+1 → Release tag = 2.13.3。
