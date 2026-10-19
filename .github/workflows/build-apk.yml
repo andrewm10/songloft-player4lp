@@ -13,15 +13,14 @@ name: Build Songloft APK (Leapmotor 方控)
 #   ① 拷贝方控补丁（Leapmotor24Wheel.kt / LeapmotorInitProvider.kt）并通过 ContentProvider 自动初始化，
 #      不再覆盖上游 SongloftApplication，从设计上免疫上游 Application 类改动；
 #   ② 构建「按 CPU 架构拆分」的 APK（flutter build apk --release --split-per-abi，
-#      仅保留车机所需的 arm64-v8a / armeabi-v7a 两个 ARM 包，剔除 x86_64 模拟器包），
-#      每个包体积更小、按车机芯片选对应文件下载即可，避免通用包（arm+arm64 合并）臃肿、下载慢；
+#      仅保留车机所需的 64 位 arm64-v8a 包，剔除 armeabi-v7a 32 位包与 x86_64 模拟器包），
+#      包体积更小、下载更快，避免通用包（arm+arm64 合并）臃肿；
 #   ③ 版本号跟随上游源码（pubspec.yaml version 字段），每次构建滚动覆盖同名 Release。
 # 与官方对齐的构建细节（保证 App 运行正常）：
 #   - runner: ubuntu-latest（与官方一致）
-#   - setup-android（导出 ANDROID_HOME）+ flutter config --android-sdk，供热更补丁的 aapt 使用
+#   - setup-android（导出 ANDROID_HOME）+ flutter config --android-sdk（构建本身需要 Android SDK）
 #   - Setup Android signing：解码 ANDROID_KEYSTORE_BASE64 为 release.jks，供 Gradle 签名
 #   - Compute native contract hash：必执行并把 native_contract.json 写进 assets（App 启动读取，缺失会卡死）
-#   - flutter_patcher 热更补丁：产出 patch-*.zip + manifest-*.json（按 ABI 遍历），随 Release 上传
 #   - version.json：设置页「检查客户端更新」dev 渠道精确比较用
 on:
   push:
@@ -63,11 +62,14 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
-          cache: true
+          # 关闭缓存：曾因 cache 复用陈旧的 shared_preferences_android AAR，导致 Dart 侧 Pigeon
+          # 调 getAll(Continuation) 而 Native AAR 仍是旧签名，启动抛 NoSuchMethodError 卡死在加载页。
+          # 关掉后每次全新解析+下载，杜绝这种插件 Dart/Native 版本错配。
+          cache: false
 
       - name: Set up Android SDK
         # 官方 build-android 用 setup-android 准备 Android SDK 并导出 ANDROID_HOME，
-        # 后续热更补丁步骤需靠 ANDROID_HOME/build-tools 下的 aapt 读取各 ABI APK 的 versionCode。
+        # 供后续 flutter config --android-sdk 使用（构建本身需要 Android SDK）。
         # 用 v4.0.4（适配 Node 24 runner，避免 v3 被强制跑在 Node 24 上导致该步失败、后续全部不执行）。
         uses: android-actions/setup-android@v4.0.4
 
@@ -100,7 +102,13 @@ jobs:
       - name: Inject Leapmotor provider & config receiver into AndroidManifest (幂等)
         run: python3 "$GITHUB_WORKSPACE/patch/inject_provider.py"
 
+      - name: Flutter clean (清除陈旧插件构建产物)
+        # 彻底清掉 build/.dart_tool 等，避免仓库内残留的旧 shared_preferences 产物参与本次构建。
+        run: flutter clean
+
       - name: Flutter pub get
+        # 全新解析依赖：确保 shared_preferences(Dart) 与 shared_preferences_android(Native AAR)
+        # 取到相互匹配的版本，消除 NoSuchMethodError: SharedPreferencesApiRegistrar.getAll。
         run: flutter pub get
 
       # 版本号跟随上游源码：直接取 pubspec.yaml 的 version 字段（去掉 +build 号）。
@@ -156,9 +164,9 @@ jobs:
           cat android/app/src/main/assets/native_contract.json
 
       # 构建「按 CPU 架构拆分」的 APK：用 --split-per-abi 一次性产出各架构包，
-      # 仅保留车机所需的 ARM 架构（arm64-v8a 64 位 / armeabi-v7a 32 位），剔除 x86_64 模拟器包。
-      # 每个包体积更小，用户按车机芯片选对应文件下载即可，避免通用包（arm+arm64 合并）臃肿、下载慢。
-      - name: "Build release APK (split per-ABI: arm64-v8a / armeabi-v7a)"
+      # 仅保留车机所需的 64 位 ARM 架构（arm64-v8a），剔除 armeabi-v7a 32 位包与 x86_64 模拟器包。
+      # 包体积更小、下载更快，避免通用包（arm+arm64 合并）臃臃肿。
+      - name: "Build release APK (arm64-v8a only)"
         id: build
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -181,62 +189,10 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/songloft-build.log"
 
           SRC=build/app/outputs/flutter-apk
-          # 仅保留车机所需的两个 ARM 包，剔除 x86_64（模拟器用，车机用不到）
-          mv "$SRC/app-arm64-v8a-release.apk"   apk-output/songloft-leapmotor-arm64-v8a.apk
-          mv "$SRC/app-armeabi-v7a-release.apk" apk-output/songloft-leapmotor-armeabi-v7a.apk
-          rm -f "$SRC/app-x86_64-release.apk"
-          echo "=== APK 产物（按 CPU 架构分拆，按需下载）==="
-          ls -lh apk-output/
-
-      # 前端热更补丁：对齐官方 build-android 的 Produce frontend hot-update patch assets。
-      # 用 aapt 读取各 ABI APK 的真实 versionCode（split-per-abi 后 versionCode 会被改写为 ABI 偏移值，
-      # 必须用 aapt 读真实值，写 pubspec 裸值会让客户端 versionCode 闸恒不通过），再调用 flutter_patcher:pack
-      # 产出 libapp.so 增量补丁 + manifest，供 App 内置热更机制拉取。
-      # 本 fork 只构建 arm64-v8a / armeabi-v7a，故仅遍历这两个 ABI（官方还含 x86_64，车机用不到已剔除）。
-      # 该步骤为「尽力而为」：若缺 flutter_patcher 或 aapt 则告警跳过，不影响 APK 发布（热更是可选增强）。
-      - name: Produce frontend hot-update patch assets
-        continue-on-error: true
-        env:
-          SEMVER: ${{ steps.version.outputs.version }}
-          BUILD_TIME: ${{ steps.version.outputs.build_time }}
-          FLUTTER_BINDING: ${{ env.FLUTTER_VERSION }}
-        run: |
-          set -e
-          # 与下方「发布 Release」使用同一 tag（版本号跟随上游 pubspec，非官方默认的 dev），
-          # 否则 patchUrl 指向的 releases/download/<TAG>/ 与实际 Release tag 不一致，App 拉热更会 404。
-          TAG="${{ steps.version.outputs.version }}"
-          BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -1)
-          if [ -z "$BUILD_TOOLS_DIR" ] && command -v sdkmanager >/dev/null 2>&1; then
-            echo "::warning:: 未找到 build-tools，尝试 sdkmanager 安装 build-tools;34.0.0"
-            sdkmanager "build-tools;34.0.0" >/dev/null 2>&1 || true
-            BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -1)
-          fi
-          if [ -z "$BUILD_TOOLS_DIR" ] || [ ! -x "$BUILD_TOOLS_DIR/aapt" ]; then
-            echo "::warning:: 无法定位 aapt（缺失 build-tools），跳过前端热更补丁生成（不影响 APK 发布）"
-            exit 0
-          fi
-          for abi in arm64-v8a armeabi-v7a; do
-            apk="build/app/outputs/flutter-apk/app-${abi}-release.apk"
-            [ -f "$apk" ] || { echo "跳过 $abi（无 APK）"; continue; }
-            ABI_VC=$("$BUILD_TOOLS_DIR/aapt" dump badging "$apk" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -1)
-            [ -n "$ABI_VC" ] || { echo "::warning:: 无法从 $apk 读取 versionCode，跳过 $abi 补丁"; continue; }
-            LABEL="${SEMVER}-${GIT_COMMIT}"
-            rm -rf dist
-            if dart run flutter_patcher:pack --apk "$apk" --version "$LABEL" \
-                 --target-version-code "$ABI_VC" --abi "$abi"; then
-              cp dist/patch.zip "apk-output/patch-${abi}-${GIT_COMMIT}.zip"
-              ZIP_MD5=$(md5sum "apk-output/patch-${abi}-${GIT_COMMIT}.zip" | cut -d' ' -f1)
-              printf '{\n  "hasUpdate": true,\n  "patch": {\n    "version": "%s",\n    "semanticVersion": "%s",\n    "gitCommit": "%s",\n    "flutterBinding": "%s",\n    "contractHash": "%s",\n    "targetVersionCode": %s,\n    "patchUrl": "https://github.com/%s/releases/download/%s/patch-%s-%s.zip",\n    "md5": "%s"\n  }\n}\n' \
-                "$LABEL" "$SEMVER" "$GIT_COMMIT" "$FLUTTER_BINDING" "${DART_CONTRACT_HASH:-}" \
-                "$ABI_VC" "$GITHUB_REPOSITORY" "$TAG" "$abi" "$GIT_COMMIT" "$ZIP_MD5" \
-                > "apk-output/manifest-${abi}.json"
-              echo "前端补丁 $abi: zip_md5=$ZIP_MD5 label=$LABEL versionCode=$ABI_VC"
-            else
-              echo "::warning:: flutter_patcher:pack 失败（ABI=$abi），跳过该 ABI 补丁"
-              continue
-            fi
-          done
-          echo "=== apk-output 现有内容 ==="
+          # 仅保留车机所需的 64 位 arm64-v8a 包，删除 armeabi-v7a（32 位）与 x86_64（模拟器）包
+          mv "$SRC/app-arm64-v8a-release.apk" apk-output/songloft-leapmotor-arm64-v8a.apk
+          rm -f "$SRC/app-armeabi-v7a-release.apk" "$SRC/app-x86_64-release.apk"
+          echo "=== APK 产物（64 位 arm64-v8a，车机通用）==="
           ls -lh apk-output/
 
       - name: Upload build log (on failure)
@@ -260,8 +216,6 @@ jobs:
           name: songloft-leapmotor-apk
           path: |
             apk-output/*.apk
-            apk-output/patch-*.zip
-            apk-output/manifest-*.json
             apk-output/version.json
           retention-days: 30
 
@@ -308,10 +262,11 @@ jobs:
             - 协议：广播 com.leapmotor.steerwheelcontrol.media，int extra "action"（1/4/7）
             - 适用零跑 2024–2027 款（C10 及以后）
 
-            ## 选择对应架构（按 CPU 下载，体积更小）
-            - 64 位零跑车机（主流 2024+，如 C10 / C11 / C16 等）→ **songloft-leapmotor-arm64-v8a.apk**
-            - 32 位车机（较老 SoC）→ **songloft-leapmotor-armeabi-v7a.apk**
-            - 不确定就先下 arm64-v8a；装不上（提示 INSTALL_FAILED_CPU_ABI_INCOMPATIBLE）再换 armeabi-v7a。
+            ## 下载与安装
+            - 本包为 **64 位 arm64-v8a**（主流 2024+ 零跑车机通用，如 C10 / C11 / C16 等）：
+              **songloft-leapmotor-arm64-v8a.apk**
+            - 极少数较老 32 位车机可能提示 `INSTALL_FAILED_CPU_ABI_INCOMPATIBLE`；
+              若你确认车机是 32 位 SoC，请联系维护方单独构建 armeabi-v7a 版本。
 
             ## 安装到车机
             车机开启「开发者选项 → USB 调试」后执行（以 arm64 为例）：
