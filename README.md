@@ -50,13 +50,6 @@ songloft-leapmotor-patch/
 
 ### 2.1 Fork 并放入补丁
 
-> ⚠️ **最常见踩坑：Fork 错仓库。**
-> 你最初拿到的链接 `https://github.com/songloft-org/songloft` 是**父 monorepo**，真正的 Flutter
-> 客户端在它的子模块 `clients/player` 里。直接 Fork 父仓库后，子模块**不会**被自动拉下来，
-> 仓库里既没有源码、也没有 `pubspec.yaml`，于是 `flutter pub get` 会报
-> `Expected to find project root` 然后失败。
-> **正确做法：Fork 下面这个仓库（客户端本体）：**
-
 1. 在 GitHub 上 Fork **`songloft-org/songloft-player`** 到你自己的账号。
    （确认 fork 后根目录能看到 `pubspec.yaml` + `android/` + `lib/`，才算 Fork 对了。）
 2. 把本目录里的 `.github/` 和 `patch/` 两个文件夹，整体复制进你的 fork 根目录
