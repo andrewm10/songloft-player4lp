@@ -11,24 +11,29 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import androidx.core.content.ContextCompat
-import kotlin.math.minOf
 import org.json.JSONObject
 import java.util.Locale
 
 /**
- * 零跑（Leapmotor）车机方向盘媒体键（方控）适配。
+ * 零跑（Leapmotor）车机方向盘媒体键（方控）适配 + 挡位联动（R 挡自动暂停）。
  *
  * 零跑车机不把方向盘按键作为 Android KeyEvent 下发，而是经 CAN → ICU → 广播转发，
  * 第三方 App 收不到任何 KeyEvent。因此必须监听这些广播，并将其翻译成标准
  * `MEDIA_BUTTON` 键事件，转发给 Songloft 已经在用的 audio_service
  * （com.ryanheise.audioservice.MediaButtonReceiver），由它驱动播放/暂停/上一首/下一首。
  *
- * 协议与去重逻辑移植自 Wh1t3co1azZ/DiPlay-Leapmotor 的 LeapmotorMediaKeys.kt
- * （上游为 CarPlay 场景，本文件去掉了 CarPlay 依赖，只保留「广播 → 媒体键」这一段）。
+ * 挡位同样经 CAN 广播：action = "leapmotor.cantoapp.update"，int extra "1010105" 取值
+ * 1=R / 2=N / 3=D。进入 R 挡暂停播放，离开 R 挡（且此前确因 R 挡暂停）再恢复。
+ *
+ * 协议与去重逻辑移植自 Wh1t3co1azZ/DiPlay-Leapmotor 的 LeapmotorMediaKeys.kt 与
+ * LeapmotorGearMonitor.kt（上游为 CarPlay 场景，本文件去掉了 CarPlay 依赖，
+ * 只保留「广播 → 媒体键」这一段；上游向 CAN 服务声明 DiPlay 持有多媒体的轮询逻辑已去除）。
  * 适用车型：零跑 2021–2023 款（固件差异通过同时注册多种 action 别名兼容）。
  *
- * 接入方式：在 SongloftApplication.onCreate() 里调用 LeapmotorMediaKeys.attach(this) 即可，
- * 进程退出时可选调用 detach()。
+ * 接入方式：在 SongloftApplication.onCreate() 里调用
+ *   LeapmotorMediaKeys.attach(this)    // 方控
+ *   LeapmotorGearMonitor.attach(this)  // 挡位联动（R 挡自动暂停）
+ * 进程退出时可选调用各自的 detach()。
  */
 internal object LeapmotorMediaProtocol {
     /** 主通道：已知固件里出现过的全部 action 拼写形式（含不同车型的别名）。 */
@@ -110,7 +115,7 @@ internal object LeapmotorMediaProtocol {
     fun actionFromPayload(payload: ByteArray?): String? {
         if (payload == null || payload.size <= 2) return null
         val declared = (payload[0].toInt() and 0xff) * 100 + (payload[1].toInt() and 0xff)
-        val end = minOf(payload.size, declared + 2)
+        val end = if (payload.size < declared + 2) payload.size else declared + 2
         if (end <= 2) return null
         return actionFromJson(String(payload, 2, end - 2, Charsets.UTF_8))
     }
@@ -303,6 +308,10 @@ internal object LeapmotorMediaKeys {
         }
     }
 
+    /** 供挡位联动调用：暂停 / 恢复播放（不经过去重窗口，确保一定送达）。 */
+    fun requestPause() { sendMediaButton(KeyEvent.KEYCODE_MEDIA_PAUSE) }
+    fun requestPlay() { sendMediaButton(KeyEvent.KEYCODE_MEDIA_PLAY) }
+
     /** 构造 MEDIA_BUTTON 广播，定向发给 audio_service 的 MediaButtonReceiver。 */
     private fun sendMediaButton(keyCode: Int) {
         val ctx = appContext ?: return
@@ -312,5 +321,117 @@ internal object LeapmotorMediaKeys {
             putExtra(Intent.EXTRA_KEY_EVENT, keyEvent)
         }
         runCatching { ctx.sendBroadcast(intent) }
+    }
+}
+
+/**
+ * 零跑挡位监听（R 挡自动暂停）。
+ *
+ * 车机经 CAN 广播挡位变化：action = "leapmotor.cantoapp.update"，
+ * int extra "1010105" 取值：1=R（倒挡）、2=N、3=D。
+ * 进入 R 挡 -> 暂停播放；离开 R 挡 -> 若此前是我们在 R 挡暂停的，则恢复播放。
+ * 协议移植自 Wh1t3co1azZ/DiPlay-Leapmotor 的 LeapmotorGearMonitor.kt。
+ * 注意：上游「向 CAN 服务声明 DiPlay 持有多媒体」的轮询逻辑与本 App 无关，已去除。
+ */
+internal object LeapmotorGearMonitor {
+    private const val TAG = "Songloft-Leapmotor"
+    private const val GEAR_ACTION = "leapmotor.cantoapp.update"
+    /** CAN 信号承载当前挡位的 int extra 键名（就是这个数字字符串）。 */
+    private const val GEAR_EXTRA = "1010105"
+    private const val UNKNOWN_GEAR = -1
+    private const val GEAR_REVERSE = 1
+
+    /**
+     * 离开 R 挡时是否自动恢复播放。
+     * true  = 进 R 暂停、出 R 恢复（仅当是 R 挡暂停的才恢复，不抢用户手动暂停）。
+     * false = 只暂停，需用户手动恢复。
+     */
+    private const val RESUME_ON_LEAVE_REVERSE = true
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var receiver: BroadcastReceiver? = null
+    private var appContext: Context? = null
+    private var rawGear = UNKNOWN_GEAR
+    private var pausedByReverse = false
+
+    @Synchronized
+    fun attach(context: Context) {
+        if (receiver != null) return
+        appContext = context.applicationContext
+        val filter = IntentFilter(GEAR_ACTION)
+        val created = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                val pending = goAsync()
+                mainHandler.post {
+                    try {
+                        handle(intent)
+                    } finally {
+                        pending.finish()
+                    }
+                }
+            }
+        }
+        val registered = runCatching {
+            ContextCompat.registerReceiver(
+                context.applicationContext,
+                created,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+        }.isSuccess
+        receiver = created.takeIf { registered }
+        Log.i(TAG, "gear monitor listening on $GEAR_ACTION registered=$registered")
+    }
+
+    @Synchronized
+    fun detach() {
+        val ctx = appContext
+        val existing = receiver
+        if (ctx != null && existing != null) runCatching { ctx.unregisterReceiver(existing) }
+        receiver = null
+        appContext = null
+        rawGear = UNKNOWN_GEAR
+        pausedByReverse = false
+        Log.i(TAG, "gear monitor detached")
+    }
+
+    private fun handle(intent: Intent?) {
+        if (intent?.action != GEAR_ACTION) return
+        val next = runCatching { intent.getIntExtra(GEAR_EXTRA, UNKNOWN_GEAR) }
+            .getOrDefault(UNKNOWN_GEAR)
+        if (next == UNKNOWN_GEAR) return
+        val previous = rawGear
+        rawGear = next
+        if (previous != next) {
+            Log.i(TAG, "gear raw=$previous -> $next (${gearName(next)})")
+            updateReverse(next == GEAR_REVERSE)
+        }
+    }
+
+    private fun gearName(g: Int): String = when (g) {
+        UNKNOWN_GEAR -> "?"
+        GEAR_REVERSE -> "R"
+        2 -> "N"
+        3 -> "D"
+        else -> "?"
+    }
+
+    /** 进入 R 挡暂停一次；离开 R 挡仅在「因 R 挡暂停」时恢复一次。 */
+    private fun updateReverse(reverse: Boolean) {
+        if (reverse) {
+            if (pausedByReverse) return
+            pausedByReverse = true
+            LeapmotorMediaKeys.requestPause()
+            Log.i(TAG, "reverse: pause playback")
+        } else {
+            if (!pausedByReverse) return
+            pausedByReverse = false
+            if (RESUME_ON_LEAVE_REVERSE) {
+                LeapmotorMediaKeys.requestPlay()
+                Log.i(TAG, "reverse ended: resume playback")
+            } else {
+                Log.i(TAG, "reverse ended: (resume disabled)")
+            }
+        }
     }
 }
