@@ -6,7 +6,7 @@
 > 适用车型：**零跑 2024–2027 款**。2021–2023 款用的是另一套完全不同的协议
 > （CAN→ICU→广播 `leapmotor.cantoapp.update`），本补丁**不覆盖**那一代理由：
 > 两代车机给第三方 App 的接口完全不是一套，混用会互相污染（详见上游 LEAPMOTOR24.md）。
-> 若你的车是 2021–2023 款，不好意思，还未适配。
+> 若你的车是 2021–2023 款，请另告知，我单独出适配。
 
 ---
 
@@ -39,7 +39,8 @@ songloft-leapmotor-patch/
     ├── Leapmotor24Wheel.kt       # 新增：零跑 2024+ 方控广播监听 + 媒体键转发 + 来源模式
     ├── LeapmotorInitProvider.kt  # 新增：ContentProvider 自动初始化入口（无需改上游 Application）
     ├── Leapmotor24ConfigReceiver.kt # 新增：ADB 配置入口，实车切换方控来源（规避跳两首）
-    └── inject_provider.py         # 增量注入 Provider/Receiver 到 AndroidManifest（幂等）
+    ├── inject_provider.py         # 增量注入 Provider/Receiver 到 AndroidManifest（幂等）
+    └── pin_shared_prefs.py        # 钉住 shared_preferences_android=2.4.28（绕开 2.5.0 JNI 崩溃）
 ```
 
 把 `patch/` 和 `.github/` 两个目录原样放进你的 `songloft-player` fork 即可。
@@ -49,6 +50,13 @@ songloft-leapmotor-patch/
 ## 2. 方式 A：GitHub Actions 自动出包（推荐，无需本机工具链）
 
 ### 2.1 Fork 并放入补丁
+
+> ⚠️ **最常见踩坑：Fork 错仓库。**
+> 你最初拿到的链接 `https://github.com/songloft-org/songloft` 是**父 monorepo**，真正的 Flutter
+> 客户端在它的子模块 `clients/player` 里。直接 Fork 父仓库后，子模块**不会**被自动拉下来，
+> 仓库里既没有源码、也没有 `pubspec.yaml`，于是 `flutter pub get` 会报
+> `Expected to find project root` 然后失败。
+> **正确做法：Fork 下面这个仓库（客户端本体）：**
 
 1. 在 GitHub 上 Fork **`songloft-org/songloft-player`** 到你自己的账号。
    （确认 fork 后根目录能看到 `pubspec.yaml` + `android/` + `lib/`，才算 Fork 对了。）
@@ -68,10 +76,12 @@ songloft-leapmotor-patch/
   Release 版本号 `2.13.3`），以此为 tag 在 **Releases** 页发布一个 **正式 Latest Release**，
   APK 作为 Asset 附上。
 - 进你 fork 的 **Releases** 页 → 找到 `Songloft 零跑方控 2.13.3` → 在 Assets 下载
-  按车机芯片选对应的文件（**已按 CPU 架构拆分，体积更小、下载更快**）：
-  - `songloft-leapmotor-arm64-v8a.apk` —— **64 位车机**（主流 2024+ 零跑，如 C10 / C11 / C16 等，优先下这个）；
-  - `songloft-leapmotor-armeabi-v7a.apk` —— **32 位车机**（较老 SoC）。
-  - 不确定就先下 `arm64-v8a`；若安装提示 `INSTALL_FAILED_CPU_ABI_INCOMPATIBLE` 再换 `armeabi-v7a`。
+  按**你的运行环境**选对应的文件（**已按 CPU 架构拆分，体积更小、下载更快**）：
+  - `songloft-leapmotor-arm64-v8a.apk` —— **64 位 arm64-v8a**，**车机**（零跑 C10 / C11 / C16 等 ARM SoC）用这个。
+  - `songloft-leapmotor-x86_64.apk` —— **x86_64**，**PC 模拟器**（雷电 / LDPlayer）用这个。
+    ⚠️ 模拟器必须装 x86_64 包：x86_64 模拟器装 arm64 包会走 ARM 二进制翻译（houdini），
+    Flutter 引擎在翻译层下极易崩溃 / 卡在启动页，测出的现象**不能代表 App 本身**。
+  - 极少数较老 32 位 ARM 车机（armeabi-v7a）本 Release 不提供，需单独构建。
   直链形如：`https://github.com/<你的账号>/songloft-player/releases/tag/2.13.3`
 - 每次重新构建（包括 `sync-upstream` 同步上游后）会**删除旧的同名 Release+tag 再重建**，
   所以 Releases 页始终保留最新一份、不会越攒越多。上游一旦升级版本号（如 `2.14.0`），
@@ -92,13 +102,13 @@ songloft-leapmotor-patch/
 
 > 本工作流**对齐官方 `.github/workflows/build-and-release.yml` 的 `build-android` job 与其 release 段**
 > （已核对：Flutter 钉 `3.44.6`、依赖覆盖走 `third_party/*`、发布用官方同款 `gh` CLI），
-> 仅在其基础上做了面向方控的改造：① 拷贝方控补丁；② **按 CPU 架构拆分构建 APK（arm64-v8a / armeabi-v7a）**，
-> 仅保留车机所需的 ARM 架构、剔除 x86_64，体积更小、下载更快；③ 版本号**跟随上游 `pubspec.yaml`**（而非原版的 dev 滚动），
+> 仅在其基础上做了面向方控的改造：① 拷贝方控补丁；② **按 CPU 架构拆分 APK，只出 arm64-v8a（车机）
+> 与 x86_64（PC 模拟器调试）两个包，剔除 armeabi-v7a 32 位 ARM 包**，
+> 体积更小、下载更快；③ 版本号**跟随上游 `pubspec.yaml`**（而非原版的 dev 滚动），
 > 并加了 Gradle 4G 堆内存兜底与失败日志上传。
 
-1. `setup-java@17`（`temurin`）+ `android-actions/setup-android@v3`（显式准备 Android SDK 并导出
-   `ANDROID_HOME`，官方 build-android 亦如此；`build-tools` 下的 `aapt` 供后续热更补丁读取各 ABI 的
-   `versionCode` 使用）+ `subosito/flutter-action`（Flutter **3.44.6**，与官方一致；
+1. `setup-java@17`（`temurin`）+ `android-actions/setup-android@v4.0.4`（显式准备 Android SDK 并导出
+   `ANDROID_HOME`，官方 build-android 亦如此，构建本身需要 Android SDK）+ `subosito/flutter-action`（Flutter **3.44.6**，与官方一致；
    `pubspec` 约束为 `flutter: '>=3.41.0'`，但官方 CI 验证过的是 3.44.6，直接用同款最稳）。
    并 `flutter config --android-sdk "$ANDROID_HOME"` 让构建与补丁步骤共用同一份 SDK。
 2. 另设 `GRADLE_OPTS=-Xmx4g` 防止多插件 release 打包 OOM。
@@ -107,24 +117,23 @@ songloft-leapmotor-patch/
    把 `LeapmotorInitProvider` 与 `Leapmotor24ConfigReceiver` 注入 `AndroidManifest.xml`（幂等，已注入则跳过）。
    全程**不覆盖、不改动**上游原 `SongloftApplication.kt`——方控通过独立的 ContentProvider 自动初始化，
    因此上游哪怕改了 Application 类名/包名/初始化逻辑，本补丁都不受影响（见第 3 节「上游改动免疫」）。
-4. `flutter pub get` → 跑官方同款 **`Compute native contract hash`**（必执行，把
+4. `flutter clean` → **`Pin shared_preferences_android to 2.4.28`**（避免该包 2.5.0 的 Pigeon JNI
+   改动导致启动 `NoSuchMethodError` 卡加载页，详见第 7 节第 2 条）→ `flutter pub get`
+   → 跑官方同款 **`Compute native contract hash`**（必执行，把
    `android/app/src/main/assets/native_contract.json` 写进 APK 资产——该文件 App 启动时会被读取，
    缺失会导致「正在启动中」卡死，故脚本失败也回退生成占位资产，绝不静默跳过）。
    随后 `Setup Android signing`：若仓库配了 `ANDROID_KEYSTORE_BASE64` 则解码为 `release.jks` 供 Gradle 签名；
    未配则回退 debug 签名（仍可侧装）。
 5. `flutter build apk --release --split-per-abi`（**按 CPU 架构拆分**，
-   一次产出 arm64-v8a / armeabi-v7a / x86_64 三个包，仅保留车机需要的 ARM 两个并剔除 x86_64）
+   一次产出 arm64-v8a / armeabi-v7a / x86_64 三个包，**保留 arm64-v8a（车机）与 x86_64（模拟器调试），
+   剔除 armeabi-v7a 32 位 ARM**）
    （与原版一致的 `--dart-define`：FRONTEND_VERSION / BUILD_TIME / GIT_COMMIT / FLUTTER_BINDING /
-   TRACELY_*）→ 收集为 `songloft-leapmotor-arm64-v8a.apk` 与 `songloft-leapmotor-armeabi-v7a.apk`
-   两个独立文件。
-6. **前端热更补丁（对齐官方 `flutter_patcher`）**：用 `aapt` 读取两个 ARM APK 各自真实的 `versionCode`
-   （split-per-abi 后 versionCode 被改写为 ABI 偏移值，必须读真实值），调 `dart run flutter_patcher:pack`
-   产出 `patch-<abi>-<commit>.zip` + `manifest-<abi>.json`（按 ABI 各一份），随 Release 一并上传，
-   供 App 内置热更机制拉取。该步骤为「尽力而为」——缺 flutter_patcher / aapt 时仅告警跳过，不影响 APK 发布。
-7. 另产出 `version.json`（设置页「检查客户端更新」dev 渠道精确比较用，缺失会「永远显示已是最新」）。
-8. **发布 Release**：从 `pubspec.yaml` 取上游版本号作为 tag，先 `gh release delete --cleanup-tag`
+   TRACELY_*）→ 收集为 `songloft-leapmotor-arm64-v8a.apk` 与 `songloft-leapmotor-x86_64.apk` 两个文件。
+   > 本 fork **不生成前端热更补丁（flutter_patcher）**：仅出完整 APK，安装即覆盖更新，无增量热更产物。
+6. 另产出 `version.json`（设置页「检查客户端更新」dev 渠道精确比较用，缺失会「永远显示已是最新」）。
+7. **发布 Release**：从 `pubspec.yaml` 取上游版本号作为 tag，先 `gh release delete --cleanup-tag`
    删旧再 `gh release create --latest` 重建（与原版 release job 的滚动逻辑一致），把 APK、
-   热更 `patch-*.zip` / `manifest-*.json`、`version.json` 一并作为 Asset 上传。
+   `version.json` 一并作为 Asset 上传。
 
 > 因为 `android/app/build.gradle.kts` 未配置签名时会**回退到 debug 签名**，产出的 APK 可直接
 > `adb install` 侧装到车机。若要发布正式签名包，在仓库 **Settings → Secrets** 里配
@@ -217,27 +226,30 @@ cp /path/to/patch/Leapmotor24ConfigReceiver.kt \
 # 3) 把 LeapmotorInitProvider + Leapmotor24ConfigReceiver 增量注入 AndroidManifest.xml（幂等，已注入则跳过）
 python3 /path/to/patch/inject_provider.py
 
-# 4) 拉依赖
+# 4) 钉住 shared_preferences_android=2.4.28（绕开 2.5.0 的 Pigeon JNI 启动崩溃，见第 7 节第 2 条）
+python3 /path/to/patch/pin_shared_prefs.py
+
+# 5) 拉依赖
 flutter pub get
 
-# 5) 按 CPU 架构拆分编译 release APK（仅保留车机需要的 ARM 包，剔除 x86_64）
+# 6) 按 CPU 架构拆分编译 release APK
 flutter build apk --release --split-per-abi
+# 注：--split-per-abi 会同时产出 arm64-v8a / armeabi-v7a / x86_64，
+#     本 fork 只取 arm64-v8a（车机）与 x86_64（模拟器调试），删除 armeabi-v7a。
 
-# 产物（按架构拆分，按需取用）：
-#   build/app/outputs/flutter-apk/app-arm64-v8a-release.apk     # 64 位车机
-#   build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk   # 32 位车机
-#   build/app/outputs/flutter-apk/app-x86_64-release.apk        # 模拟器用，车机用不到，可删
+# 产物：
+#   build/app/outputs/flutter-apk/app-arm64-v8a-release.apk   # 车机（ARM SoC）
+#   build/app/outputs/flutter-apk/app-x86_64-release.apk      # PC 模拟器（x86_64）
 ```
 
-### 安装到车机
+### 安装
 ```bash
-# 方式 A：USB 调试（车机需开启「开发者选项 → USB 调试」）
-# 64 位车机：
+# 车机（ARM SoC）—— 方式 A：USB 调试（需开启「开发者选项 → USB 调试」）
 adb install -r build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-# 32 位车机：
-adb install -r build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+# 车机 —— 方式 B：把 apk 拷到 U 盘 / 车机文件管理器里手动安装
 
-# 方式 B：把对应 apk 拷到 U 盘 / 车机文件管理器里手动安装
+# PC 模拟器（雷电 / LDPlayer 等 x86_64）—— 必须装 x86_64 包，别装 arm64 包
+adb install -r build/app/outputs/flutter-apk/app-x86_64-release.apk
 ```
 
 ### 验证方控是否生效（车机接上电脑 adb）
@@ -276,3 +288,94 @@ adb logcat -s Songloft-Leapmotor
 - 适配范围：**零跑 2024–2027 款**（C10 及以后）。2021–2023 款为另一套协议，需单独适配。
 - 仓库 `android/app/libs/` 下无 Go 后端 AAR（仅为空占位），`BackendPatchManager` 是仓库自带
   Kotlin 源码，故 clean checkout 即可直接编译；Go 后端缺失仅影响该后端对应功能，不影响方控与主播放。
+
+## 7. 安装后卡在「正在启动中」如何排查
+
+先澄清：**方控补丁不会造成卡死**——它的初始化仅在 App 启动早期注册一个广播接收器，全程 `try/catch`、
+且不参与主界面流程。若卡在加载页，按下面顺序查：
+
+1. **抓日志定位**（车机接电脑）：
+   ```bash
+   adb logcat -c
+   # 启动 Songloft 等它卡住
+   adb logcat -d > launch.txt
+   ```
+   用记事本搜：`FATAL` / `ANR` / `flutter` / `Songloft` / `ConnectException` / `timeout`。
+
+2. **`NoSuchMethodError: SharedPreferencesApiRegistrar.getAll(...Continuation)`** ← **已定位并修复**
+   现象（实测抓到的完整链路）：
+   ```
+   I flutter : [Main] Token 预加载失败: PlatformException(... getAll(...) ...)
+   I flutter : [Main] 🚀 开始初始化 AudioService...   ← 能继续，不崩
+   I flutter : [PlatformError] 同样的 getAll 报错
+   （之后 App 完全静默，Activity 虽已 Fully drawn，但一直停在「正在启动中」）
+   ```
+   含义：所有 SharedPreferences 读写全废 → App 读不到保存的 token / 服务器配置 → 卡在加载页
+   （是**卡住**，不是崩溃，所以 tombstone 里抓不到 App 的崩溃栈）。
+
+   **根因（已确证）：`shared_preferences_android` 2.5.0 的上游破坏性改动。**
+   该版本发布于 **2026-10-17**，changelog 只有一行：
+   > Updates internal implementation to use Pigeon JNI.
+
+   即内部实现从传统 Pigeon `BasicMessageChannel` 换成了 **jnigen 直接 JNI 调用**。
+   迁移后 Dart 侧会去调原生 `SharedPreferencesApiRegistrar.getAll(String, List, Continuation)`，
+   APK 内该签名一旦不可用就抛 `NoSuchMethodError`。
+   而 `shared_preferences` 2.5.6 对它的约束是 `^2.3.4`，**pub 默认解析到最新的 2.5.0，等于自动踩坑**。
+
+   **修复：钉回 2.4.28**（最后一个传统 Pigeon 通道实现版本，在 `^2.3.4` 约束之内）。
+   - 由 `patch/pin_shared_prefs.py` 在 CI 时把
+     `dependency_overrides: { shared_preferences_android: 2.4.28 }` 注入 `pubspec.yaml`
+     —— 不直接改仓库里的 pubspec（sync-upstream 会覆盖）；`dependency_overrides` 优先级最高，
+     能盖住上游既有的 override。脚本幂等，四种 pubspec 形态均已实测通过。
+   - ⚠️ **反面教训：不要删 `pubspec.lock` 去「强制重新解析」**——那只会让 pub 解析到**最新**
+     （含坏的 2.5.0），反而必踩坑。本仓库早期的错误做法已撤销。
+   - ⚠️ `cache: false` + `flutter clean` 同样**修不掉它**（clean 不清 pub-cache、不改 lock）。
+     这两项作为卫生习惯保留，但别指望它们解决问题。
+   - 验证：构建日志里那段
+     `=== shared_preferences 系列实际解析版本 ===` 必须显示 **`2.4.28`**（不是 2.5.0）才算生效。
+   - 若某天上游 2.5.x 修好了 JNI 路径想升级：删掉注入即可，但同时要确认
+     `android/app/build.gradle(.kts)` 里 `minifyEnabled` 为 `false`——
+     R8 会把「只有 Dart 通过 JNI 调用」的 Kotlin 方法当成无用代码剥离，这是 JNI 的经典陷阱
+     （CI 已打印该配置值，便于核对）。
+
+3. **`native_contract.json` 缺失**：App 启动读该资产，缺失会卡死。本 fork 已保证该资产必生成
+   （脚本失败也回退占位），正常不会出现。
+
+4. **网络/登录**：流媒体 App 的「正在启动中」常是在等后端握手。请确认车机有外网、账号能登录；
+   若纯离线环境，加载页可能一直转（上游行为，非 bug）。
+
+5. **⚠️ 抓日志的两个大坑（务必先看这条，别被假崩溃带偏）**
+   - **坑一：别在模拟器里用 `grep` 过滤 logcat。** 模拟器的 `toybox grep` 自身会 SIGSEGV 崩溃
+     （tombstone 里 `name: grep`、栈在 `toybox do_grep/regexec`），导致日志末尾出现
+     `Segmentation fault … 返回码 139`，**这是抓日志的工具崩了，不是 App 崩了**。
+     正确做法：**在电脑上抓取完整日志、再在电脑上筛选**——
+     ```bash
+     adb logcat -c
+     # 启动 Songloft，等它卡住（30 秒以上）
+     adb logcat -d > launch.txt     # 不加任何管道/过滤
+     # 然后在电脑上用记事本或 grep 搜 FATAL / flutter / Songloft / ConnectException / timeout
+     ```
+   - **坑二：`tombstone` 要先确认是不是 App 的。** 模拟器/系统里任何进程崩溃都会留一个 tombstone，
+     拉之前先看它的 `Cmdline` / `name` 字段，必须是 App 进程才算数：
+     ```bash
+     adb shell ls -lat /data/tombstones/          # 取时间最新的
+     adb shell head -20 /data/tombstones/tombstone_XX   # 确认 name/Cmdline 是 com.songloft...
+     adb pull /data/tombstones/tombstone_XX
+     ```
+   - 同理，判断崩溃归属时看栈里 `.so`：
+     `libflutter` / `impeller` / `vk*` / `libGLESv2` → Flutter 渲染；
+     `libmpv` / `libav*` / `libmedia_kit` → 某原生插件；
+     栈全在 `toybox` / `grep` 里 → 与我方 App 无关，忽略。
+
+6. **⚠️ 必须按环境装对包：车机装 arm64，x86_64 模拟器装 x86_64**
+   本 fork 出两个包：`arm64-v8a`（车机，ARM SoC）与 `x86_64`（PC 模拟器）。
+   **x86_64 的 PC 模拟器（如雷电/LDPlayer，tombstone 里会显示 `ABI: 'x86_64'`）如果装了 arm64 包，
+   就变成靠 ARM 二进制翻译（houdini）运行**，Flutter 引擎这种重度原生代码在翻译层下极易出现
+   原生崩溃、卡在启动页、性能异常——**这类结果不能当作"App 有问题"的证据**。
+   - 判断你当前环境的 ABI：`adb shell getprop ro.product.cpu.abi`
+     （输出 `arm64-v8a` = 真机/ARM 环境；`x86_64` = PC 模拟器）。
+   - 实测经验：在 x86_64 模拟器上装 arm64 包，会出现 `Segmentation fault`、卡启动页等假故障；
+     换成 x86_64 包后这些现象应消失。若换包后仍有问题，才是真的 App 层问题。
+
+> 方控补丁自身日志标签为 `Songloft-Leapmotor`；出现 `方控初始化入口（ContentProvider）已触发`
+> 即表示补丁正常，卡死与方控无关。
