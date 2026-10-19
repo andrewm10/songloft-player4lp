@@ -68,7 +68,8 @@ jobs:
       - name: Set up Android SDK
         # 官方 build-android 用 setup-android 准备 Android SDK 并导出 ANDROID_HOME，
         # 后续热更补丁步骤需靠 ANDROID_HOME/build-tools 下的 aapt 读取各 ABI APK 的 versionCode。
-        uses: android-actions/setup-android@v3
+        # 用 v4.0.4（适配 Node 24 runner，避免 v3 被强制跑在 Node 24 上导致该步失败、后续全部不执行）。
+        uses: android-actions/setup-android@v4.0.4
 
       - name: Configure Flutter
         run: |
@@ -244,7 +245,7 @@ jobs:
         with:
           name: build-log
           path: ${{ runner.temp }}/songloft-build.log
-          if-no-files-found: warn
+          if-no-files-found: ignore
 
       - name: Summarize first errors (on failure)
         if: failure()
