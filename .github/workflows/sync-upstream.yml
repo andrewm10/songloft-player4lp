@@ -43,15 +43,18 @@ jobs:
             exit 1
           }
 
-      - name: Re-apply Leapmotor 方控 patch
+      - name: Re-apply Leapmotor 2024+ 方控 patch
         run: |
           DST="android/app/src/main/kotlin/com/songloft/songloft_flutter"
           if [ -d "$DST" ]; then
-            cp patch/LeapmotorMediaKeys.kt "$DST/" || true
-            cp patch/SongloftApplication.kt "$DST/" || true
-            echo "Re-applied 方控 patch into $DST"
+            cp patch/Leapmotor24Wheel.kt "$DST/"
+            cp patch/LeapmotorInitProvider.kt "$DST/"
+            cp patch/Leapmotor24ConfigReceiver.kt "$DST/"
+            echo "Re-applied 方控 patch into $DST:"
+            ls -l "$DST/Leapmotor24Wheel.kt" "$DST/LeapmotorInitProvider.kt" "$DST/Leapmotor24ConfigReceiver.kt"
           else
-            echo "::warning::未找到 $DST，跳过补丁拷贝（请确认仓库结构未变）。"
+            echo "::error::未找到 $DST，无法重打补丁（请确认仓库结构未变）。"
+            exit 1
           fi
 
       - name: Commit & push if changed (否则跳过，不触发构建)

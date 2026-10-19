@@ -7,10 +7,12 @@ name: Build Songloft APK (Leapmotor 方控)
 # 若 fork 的是父仓库 songloft-org/songloft（monorepo，clients/player 是未初始化的 git submodule），
 # 仓库内没有 pubspec.yaml，本流程会直接报错并提示改用 songloft-player。
 #
-# 本工作流严格对齐官方 .github/workflows/build-and-release.yml 的 build-android job（Flutter 3.44.6、
-# 不做 Go 后端、split-per-abi），并参照其 release 段用 gh CLI 发布：
-#   ① 拷贝方控补丁（LeapmotorMediaKeys.kt / SongloftApplication.kt）；
-#   ② 把产物改名为 songloft-leapmotor-*.apk；
+# 本工作流对齐官方 .github/workflows/build-and-release.yml 的 build-android job（Flutter 3.44.6、
+# 不做 Go 后端），并参照其 release 段用 gh CLI 发布；仅做三处面向方控的改造：
+#   ① 拷贝方控补丁（Leapmotor24Wheel.kt / LeapmotorInitProvider.kt）并通过 ContentProvider 自动初始化，
+#      不再覆盖上游 SongloftApplication，从设计上免疫上游 Application 类改动；
+#   ② 构建「通用 APK」（flutter build apk --release，含 arm64 + arm32，单文件），
+#      避免车机 ABI 不匹配导致「装了打不开 / 不能进入」；
 #   ③ 版本号跟随上游源码（pubspec.yaml version 字段），每次构建滚动覆盖同名 Release。
 on:
   push:
@@ -66,14 +68,18 @@ jobs:
             exit 1
           fi
 
-      - name: Apply Leapmotor 方控 patch
+      - name: Apply Leapmotor 2024+ 方控 patch (拷贝新增 Kotlin 文件，不改上游 Application)
         run: |
           DST="android/app/src/main/kotlin/com/songloft/songloft_flutter"
           mkdir -p "$DST"
-          cp "$GITHUB_WORKSPACE/patch/LeapmotorMediaKeys.kt" "$DST/"
-          cp "$GITHUB_WORKSPACE/patch/SongloftApplication.kt" "$DST/"
+          cp "$GITHUB_WORKSPACE/patch/Leapmotor24Wheel.kt" "$DST/"
+          cp "$GITHUB_WORKSPACE/patch/LeapmotorInitProvider.kt" "$DST/"
+          cp "$GITHUB_WORKSPACE/patch/Leapmotor24ConfigReceiver.kt" "$DST/"
           echo "Applied patch files:"
           ls -l "$DST"
+
+      - name: Inject Leapmotor provider & config receiver into AndroidManifest (幂等)
+        run: python3 "$GITHUB_WORKSPACE/patch/inject_provider.py"
 
       - name: Flutter pub get
         run: flutter pub get
@@ -89,8 +95,7 @@ jobs:
           echo "build_time=$BUILD_TIME" >> "$GITHUB_OUTPUT"
 
       # 原生契约哈希：官方在 build 前执行（仅用于热更门控，不影响编译）。
-      # 该文件未被 pubspec 声明为资源；本 fork 无内嵌 Go 后端，go 哈希本就为空。
-      # 脚本若不存在或异常则跳过，不阻断构建。
+      # 标准版无内嵌 Go 后端，go 哈希本就为空；脚本若不存在或异常则跳过，不阻断构建。
       - name: Compute native contract hash (optional)
         continue-on-error: true
         run: |
@@ -101,7 +106,10 @@ jobs:
             echo "compute_native_contract.sh 不存在，跳过（不影响编译）"
           fi
 
-      - name: Build release APK (split-per-abi)
+      # 构建通用 APK：含 arm64-v8a + armeabi-v7a + x86_64，单文件。
+      # 车机有 32 位也有 64 位 SoC，通用包可在任意零跑车机上安装运行，避免 split-per-abi
+      # 只给单一 ABI 导致「装了打不开 / 不能进入」。
+      - name: Build release APK (universal)
         id: build
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -111,7 +119,7 @@ jobs:
           set -o pipefail
           GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
           echo "git_commit=$GIT_COMMIT" >> "$GITHUB_OUTPUT"
-          flutter build apk --release --split-per-abi \
+          flutter build apk --release \
             --dart-define=FRONTEND_VERSION=${{ steps.version.outputs.version }} \
             --dart-define=FRONTEND_BUILD_TIME=${{ steps.version.outputs.build_time }} \
             --dart-define=FRONTEND_GIT_COMMIT=$GIT_COMMIT \
@@ -135,13 +143,11 @@ jobs:
           echo "===== 构建日志中首个错误附近内容 ====="
           grep -n -i -E "error:|what went wrong|exception|failed for task|outofmemory|gc overhead|could not|unresolved|conflicting" "$RUNNER_TEMP/songloft-build.log" | head -40 || echo "(no grep matches)"
 
-      - name: Collect APK
+      - name: Collect APK (universal)
         if: success()
         run: |
           mkdir -p apk-output
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk apk-output/songloft-leapmotor-arm64.apk
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk apk-output/songloft-leapmotor-armeabi-v7a.apk 2>/dev/null || true
-          cp build/app/outputs/flutter-apk/app-x86_64-release.apk apk-output/songloft-leapmotor-x86_64.apk 2>/dev/null || true
+          cp build/app/outputs/flutter-apk/app-release.apk apk-output/songloft-leapmotor.apk
           echo "=== APK 产物 ==="
           ls -lh apk-output/
 
@@ -168,7 +174,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.version }}
           NOTES: |
-            Songloft Player (Flutter) + 零跑车机方控 (Leapmotor steering wheel controls)
+            Songloft Player (Flutter) + 零跑 2024+ 车机方控 (Leapmotor steering wheel controls, 2024–2027)
 
             版本: ${{ steps.version.outputs.version }}
             提交: ${{ steps.build.outputs.git_commit }}
@@ -176,15 +182,17 @@ jobs:
             Flutter: ${{ env.FLUTTER_VERSION }}
 
             ## 功能
-            - 零跑方向盘媒体键（上一首 / 下一首 / 播放暂停）监听，并转发给 audio_service 媒体会话
-            - R 挡自动暂停；出 R 挡自动恢复（仅恢复由 R 挡暂停的曲目）
+            - 零跑方向盘媒体键（上一首 / 下一首 / 播放暂停）监听，转发给 audio_service 媒体会话
+            - 协议：广播 com.leapmotor.steerwheelcontrol.media，int extra "action"（1/4/7）
+            - 适用零跑 2024–2027 款（C10 及以后）
 
             ## 安装到车机
             车机开启「开发者选项 → USB 调试」后执行：
-                adb install -r songloft-leapmotor-arm64.apk
+                adb install -r songloft-leapmotor.apk
 
-            ## 验证方控 / 挡位
+            ## 验证方控
                 adb logcat -s Songloft-Leapmotor
+            按方控「下一首」应看到：方控转发 action=4 -> keyCode=87
 
             本 Release 由 fork 的 GitHub Actions 自动构建并滚动更新，版本号跟随上游 songloft-player 源码。
         run: |
