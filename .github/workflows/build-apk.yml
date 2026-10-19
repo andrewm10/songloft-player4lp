@@ -13,10 +13,11 @@ name: Build Songloft APK (Leapmotor 方控)
 on:
   push:
     branches: [ main, master, build-apk ]
+    tags: [ 'v*' ]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # 发布正式版 Release（tag 触发）需要写权限
 
 env:
   # 与原版 build-and-release.yml 保持一致，使用官方验证过的稳定版本。
@@ -150,3 +151,41 @@ jobs:
           name: songloft-leapmotor-apk
           path: apk-output/*.apk
           retention-days: 7
+
+      # 发布到 GitHub Release：仅在打 tag（如 v1.2.3）推送时出「正式版」Release，
+      # tag 名即 Release 版本号。普通分支推送只产出 Artifact 供测试，不发布 Release。
+      # 用 runner 自带的 gh CLI，不引入第三方 action，避免 Node 弃用与版本漂移。
+      - name: Publish to GitHub Release (tagged)
+        if: success() && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          GIT_COMMIT="$(git rev-parse --short HEAD)"
+          VERSION="${{ steps.version.outputs.version }}"
+          BUILD_TIME="${{ steps.version.outputs.build_time }}"
+          FLUTTER="${{ env.FLUTTER_VERSION }}"
+
+          cat > "$RUNNER_TEMP/release-notes.md" <<'EOF'
+          自动构建 · 零跑车机方控 + R 挡自动暂停
+
+          - 版本: __VERSION__
+          - Commit: __COMMIT__
+          - 构建时间(UTC): __BUILD_TIME__
+          - Flutter: __FLUTTER__
+
+          安装：车机开启「开发者选项 → USB 调试」后执行
+              adb install -r songloft-leapmotor-arm64.apk
+          方控/挡位日志：
+              adb logcat -s Songloft-Leapmotor
+          EOF
+          sed -i "s|__VERSION__|$VERSION|"        "$RUNNER_TEMP/release-notes.md"
+          sed -i "s|__COMMIT__|$GIT_COMMIT|"      "$RUNNER_TEMP/release-notes.md"
+          sed -i "s|__BUILD_TIME__|$BUILD_TIME|"   "$RUNNER_TEMP/release-notes.md"
+          sed -i "s|__FLUTTER__|$FLUTTER|"        "$RUNNER_TEMP/release-notes.md"
+
+          gh release create "$TAG" apk-output/*.apk \
+            --title "Songloft 零跑方控 $TAG" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+          echo "::notice::已发布到 Release: $TAG -> https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
