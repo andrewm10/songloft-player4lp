@@ -26,10 +26,19 @@ internal class LeapmotorInitProvider : ContentProvider() {
     override fun onCreate(): Boolean {
         try {
             val ctx = context ?: return false
-            Leapmotor24Wheel.attach(ctx)
-            Log.i("Songloft-Leapmotor", "方控初始化入口（ContentProvider）已触发")
+            // ContentProvider.onCreate() 运行在主线程、且早于应用任何界面（包括 Splash/"正在启动中"页）。
+            // 为杜绝「方控初始化万一阻塞主线程 → Splash 卡死」的风险，挂接动作放到后台线程执行。
+            // （当前 attach 本身只做读 SharedPreferences + 注册广播，本就很快；此处只是兜底。）
+            Thread {
+                try {
+                    Leapmotor24Wheel.attach(ctx)
+                } catch (t: Throwable) {
+                    Log.e("Songloft-Leapmotor", "方控初始化失败（已忽略，不影响主程序启动）", t)
+                }
+            }.also { it.name = "leapmotor-init"; it.start() }
+            Log.i("Songloft-Leapmotor", "方控初始化入口（ContentProvider）已触发，挂接将在后台线程执行")
         } catch (t: Throwable) {
-            Log.e("Songloft-Leapmotor", "方控初始化失败（已忽略，不影响主程序启动）", t)
+            Log.e("Songloft-Leapmotor", "方控初始化入口异常（已忽略，不影响主程序启动）", t)
         }
         // 返回 false：本 Provider 不对外提供数据，不需要被系统保留实例。
         return false
