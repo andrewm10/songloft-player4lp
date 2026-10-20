@@ -2,6 +2,18 @@
 
 此文件记录 Songloft Flutter 客户端的版本变更，仅提供中文版本。版本 tag 的 Release 发布成功后，由 CI 根据 Conventional Commits 分类追加记录并提交到 `main`；滚动 dev 记录见 [GitHub Releases](https://github.com/songloft-org/songloft-player/releases/tag/dev)。
 
+## [v2.13.5] - 2026-10-20
+### :bug: 问题修复
+- [`203e79b`](https://github.com/songloft-org/songloft-player/commit/203e79b5fd7ac02b8edb93af291bb6981e62974f) - **player**: 电台断流持续重连并保留当前台 *(提交者 [@hanxi](https://github.com/hanxi))*
+- [`e22b755`](https://github.com/songloft-org/songloft-player/commit/e22b75561c0a0e93bd391dba324e66f09bcd395c) - **android**: 保留 JNI 协程运行时以修复启动卡住 *(提交者 [@hanxi](https://github.com/hanxi))*
+
+### :memo: 文档更新
+- [`2621aec`](https://github.com/songloft-org/songloft-player/commit/2621aecda59f70fec344954f000ba57532aa7abf) - **changelog**: 更新 v2.13.4 变更记录 *(提交者 [@github-actions[bot]](https://github.com/apps/github-actions))*
+
+### :wrench: 维护工作
+- [`98fe97d`](https://github.com/songloft-org/songloft-player/commit/98fe97d0ae23a16e5034a56337134c4b4aa142ce) - release version 2.13.5 *(提交者 [@hanxi](https://github.com/hanxi))*
+
+
 ## [v2.13.4] - 2026-10-20
 ### :bug: 问题修复
 - [`bb03a5c`](https://github.com/songloft-org/songloft-player/commit/bb03a5c49eb6701d90a73b924ed12ec388c6560c) - **player**: 优化大播放队列定位与批量追加 songloft-org/songloft[#525](https://github.com/songloft-org/songloft-player/pull/525) *(提交者 [@hanxi](https://github.com/hanxi))*
@@ -82,3 +94,4 @@
 [v2.13.2]: https://github.com/songloft-org/songloft-player/compare/v2.13.1...v2.13.2
 [v2.13.3]: https://github.com/songloft-org/songloft-player/compare/v2.13.2...v2.13.3
 [v2.13.4]: https://github.com/songloft-org/songloft-player/compare/v2.13.3...v2.13.4
+[v2.13.5]: https://github.com/songloft-org/songloft-player/compare/v2.13.4...v2.13.5
