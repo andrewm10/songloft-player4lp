@@ -12,6 +12,7 @@
 #     - 所有 com.songloft/* 自定义 MethodChannel 的名字 + 方法名集合（从 Kotlin 源解析）
 #     - GeneratedPluginRegistrant 注册的插件类集合（插件增删）
 #     - .flutter-plugins-dependencies 里 android 原生插件的 name+version（插件版本带原生改动）
+#     - release ProGuard 规则（JNI 方法描述符及其参数类型属于不可热更的原生契约）
 #   go 哈希（门控后端 libgojni.so，仅 bundle）：
 #     - sha256(mobile/export_surface.txt)（gomobile 导出面，复用既有冻结文件）
 #
@@ -98,6 +99,13 @@ for p in data.get("plugins", {}).get("android", []):
 for r in sorted(rows):
     print(r)
 PY
+  fi
+
+  # 5) R8 规则会改变 JNI 查找的类名/方法描述符，不能只靠 Dart 补丁修复旧 APK。
+  local proguard_rules="$REPO_ROOT/android/app/proguard-rules.pro"
+  if [ -f "$proguard_rules" ]; then
+    echo "## proguard-rules"
+    sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' "$proguard_rules"
   fi
 }
 

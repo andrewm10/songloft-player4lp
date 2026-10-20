@@ -336,6 +336,7 @@ jobs:
       # 标准版无内嵌后端 → 不传 --export-surface,go 哈希留空。
       - name: Compute native contract hash (bake asset)
         run: |
+          python3 -m unittest discover -s scripts/tests -p '*_test.py'
           HASHES=$(./scripts/compute_native_contract.sh \
             --write-asset android/app/src/main/assets/native_contract.json)
           echo "native_contract.json = $HASHES"
@@ -357,6 +358,11 @@ jobs:
             --dart-define=TRACELY_APP_ID=${{ secrets.TRACELY_APP_ID }} \
             --dart-define=TRACELY_APP_SECRET=${{ secrets.TRACELY_APP_SECRET }} \
             --dart-define=TRACELY_HOST=${{ secrets.TRACELY_HOST }}
+      - name: Verify release SharedPreferences JNI runtime for all ABIs
+        run: |
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            python3 scripts/check-android-preferences-jni.py "build/app/outputs/flutter-apk/app-$abi-release.apk"
+          done
       - name: Collect APKs
         run: |
           mkdir -p apk-output

@@ -10,6 +10,10 @@ This directory contains build and release scripts for the Songloft Flutter front
 | `bump-version.sh` | Release script (semantic versioning + Git tagging) |
 | `docker-build-frontend.sh` | Docker build helper |
 | `download-fonts.sh` | Font download script (downloads custom fonts used by the project) |
+| `compute_native_contract.sh` | Hash plugins, MethodChannels and release ProGuard rules for hot-update compatibility |
+| `check-android-preferences-jni.py` | Check the preferences plugin's JNI method descriptor in a release APK using Android SDK `apkanalyzer` |
+
+After an Android release build, run `python3 scripts/check-android-preferences-jni.py <apk>` to verify JNI method descriptors and the Kotlin coroutine, result and Unit classes/members referenced by the JNI runtime. Both standard and Bundle release workflows check the ARM64, ARMv7 and x86_64 artifacts individually. Dart tests and debug APKs cannot replace it. ProGuard changes require a full APK; the native contract hash prevents old APKs from receiving only a Dart patch. Run script regressions with `python3 -m unittest discover -s scripts/tests -p '*_test.py'`.
 
 ## 🔧 `bump-version.sh` — Versioning & Release
 
