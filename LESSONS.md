@@ -10,6 +10,16 @@
 
 ## 条目
 
+### AUDIO-003：libmpv 的 error 日志不等于致命错误，判定曲目结束前要看播放是否真的停住
+
+- 范围：原生端（Win/Linux/macOS/Android/iOS）media_kit/libmpv 播放，songloft-org/songloft#529，基线 `1dcc52612f6242a0598b3c06c946200a5d2f1ec5`。
+- 证据：2026-10-20，报告样本 MP3 在文件偏移 728728 处有一段**整 32768 字节的全零**（无 Xing 头，对应音频 25.73s）。后端无锅：扫描时长 282.996083333s 正确，`/api/v1/songs/1/play` 返回 `Content-Length: 6903290` 与文件逐字节一致；`curl -r` 重取原站同段数据亦完全相同，损坏在源文件。解码器其实能恢复：ffmpeg 报一次 `[mp3float] Header missing` 后仍解出 281.52s（比 283.0s 少的 1.4s 正好 = 32768 ÷ 24000 B/s）；Chrome `<audio>` 播到 283s 才 `ended`。但 libmpv 把这条**可恢复**的解码错误按 `level=error` 从 `ad` 模块打出，vendored media_kit `real.dart` 的 `prefix == 'ad'` 分支将其转成 `player.stream.error`，`songloft_mediakit_player.dart` 的播放中错误分支（为 songloft-org/songloft#357 的 FLAC 尾部错误/网络流中断而加）无条件置 `completed` → 上层当曲目放完自动切歌 → 整首歌在 00:25 被跳过。
+- 规则：**错误事件本身区分不出可恢复与致命**，不要靠它单独判定曲目结束。要看错误之后播放位置还推不推进：记下位置、等一个观察窗口，窗口结束仍几乎原地不动才判定致命。暂停中不判定（既无从比较，自动切歌本身也错）；连续错误刷屏不重置窗口，否则窗口永不到期；seek/换曲/load/release 要让基线失效。
+- Done right：新增 `lib/core/audio/playback_error_watchdog.dart`（3s 窗口 / 500ms 推进阈值），播放中错误改为 `arm()`，加载失败分支行为不变（#357 的不可恢复场景仍会判定结束，只是晚 3s）。7 项新单测覆盖「推进中不判定」「停住判定」「低于阈值判定」「暂停不切歌」「cancel」「连续错误只判一次」「判定后可重新 arm」；隔离破坏检查删掉推进判断后 #529 回归项如期失败。`flutter analyze`（core/audio + test/core/audio）无问题，完整 749 项测试通过，`dart format` 无差异。
+- 其他端结论：Flutter Web（`songloft_web_audio_player.dart`）error → `idle` 不切歌，真实 headless Chrome 驱动的 Flutter Web 从 25.1s 直播到 33.1s 无 error、无 `ended`；Lynx Web（`player-store.ts` 的 `audio.on('error')`）走 `scheduleRetry` 原位重试，`stateChanged: 'error'` 分支为空，均不受影响。报告人所说「web 端」与此不符，待其确认客户端类型。
+- Not run：报告人 Windows/Android 原生包与其私人曲库的实际验收；本地无 Windows/Android 设备，ffmpeg 与 Chrome 不替代原生 libmpv 真机回归。
+- Seen 1× (2026-10-20)。状态：经验；修复提交以 Git 为准。
+
 ### AUDIO-002：just_audio 的 headers 会无条件启用回环代理，HLS 子资源 key 与之不匹配
 
 - 范围：桌面（Win/Linux/macOS）HLS 电台播放，libmpv 后端与 just_audio 0.10.6，songloft-org/songloft-player，基线 `a9e5dda70b61e313ee9902b9bfc26691c16230c6`。

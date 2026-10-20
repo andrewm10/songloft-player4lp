@@ -8,6 +8,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import 'audio_backend.dart';
 import 'live_stream_headers.dart';
+import 'playback_error_watchdog.dart';
 import '../../config/app_config.dart';
 
 /// [MediaKitPlayer] 的本地重新实现，唯一区别是 [player] 字段为 public。
@@ -78,6 +79,17 @@ class SongloftMediaKitPlayer extends AudioPlayerPlatform {
   int _currentIndex = 0;
   Duration? _setPosition;
   bool _released = false;
+
+  late final PlaybackErrorWatchdog _playbackErrorWatchdog =
+      PlaybackErrorWatchdog(
+        position: () => _position,
+        isPlaying: () => _playing,
+        onFatal: () {
+          _mediaOpened = false;
+          _processingState = ProcessingStateMessage.completed;
+          _updatePlaybackEvent();
+        },
+      );
 
   Media? get _currentMedia {
     final playlist = player.state.playlist;
@@ -161,6 +173,7 @@ class SongloftMediaKitPlayer extends AudioPlayerPlatform {
         _addPlayerData(PlayerDataMessage(volume: volume / 100.0));
       }),
       player.stream.completed.listen((completed) {
+        _playbackErrorWatchdog.cancel();
         _bufferedPosition = _position = Duration.zero;
         if (completed &&
             _currentIndex == player.state.playlist.medias.length - 1 &&
@@ -189,17 +202,17 @@ class SongloftMediaKitPlayer extends AudioPlayerPlatform {
           // 区分"加载失败"与"播放中错误"（songloft-org/songloft#357）：
           // 加载阶段（_loadCompleter 未完成）→ 按原逻辑 idle + errorCode，
           //   由上层 _playCurrent 的 try/catch 捕获并走重试策略。
-          // 播放中（media 已 open 且 load 已完成）→ 视为曲目结束触发自动切歌，
-          //   否则播放器卡在 idle 不会自动前进（典型场景：FLAC 文件尾部解码错误、
-          //   网络流中途断开等不可恢复错误）。
+          // 播放中（media 已 open 且 load 已完成）→ 交给 watchdog 观察一段时间，
+          //   播放确实停住了才判定曲目结束触发自动切歌；可恢复的解码错误
+          //   （如 MP3 中间有损坏数据）不能直接跳过整首歌
+          //   （songloft-org/songloft#529）。
           final isPlaybackError =
               _mediaOpened &&
               (_loadCompleter == null || _loadCompleter!.isCompleted);
-          _mediaOpened = false;
           if (isPlaybackError) {
-            _processingState = ProcessingStateMessage.completed;
-            _updatePlaybackEvent();
+            _playbackErrorWatchdog.arm();
           } else {
+            _mediaOpened = false;
             _completeLoadError(Exception(error));
           }
         }
@@ -207,6 +220,7 @@ class SongloftMediaKitPlayer extends AudioPlayerPlatform {
       player.stream.playlist.listen((playlist) {
         final index = _validPlaylistIndex(playlist);
         if (index != null && _currentIndex != index) {
+          _playbackErrorWatchdog.cancel();
           _bufferedPosition = _position = Duration.zero;
           _currentIndex = index;
         }
@@ -357,6 +371,7 @@ class SongloftMediaKitPlayer extends AudioPlayerPlatform {
 
   @override
   Future<LoadResponse> load(LoadRequest request) async {
+    _playbackErrorWatchdog.cancel();
     _mediaOpened = false;
     final loadCompleter = Completer<Duration?>();
     _loadCompleter = loadCompleter;
@@ -537,6 +552,8 @@ class SongloftMediaKitPlayer extends AudioPlayerPlatform {
 
   @override
   Future<SeekResponse> seek(SeekRequest request) async {
+    // 位置基线失效：seek 后位置与错误发生时不再可比。
+    _playbackErrorWatchdog.cancel();
     if (request.index != null) {
       await player.jump(request.index!);
       if (!_playing) await player.pause();
@@ -601,6 +618,7 @@ class SongloftMediaKitPlayer extends AudioPlayerPlatform {
     debugPrint('[SongloftMediaKitPlayer] release 开始');
     _released = true;
     _mediaOpened = false;
+    _playbackErrorWatchdog.cancel();
 
     if (_loadCompleter?.isCompleted == false) {
       _loadCompleter?.complete(null);
