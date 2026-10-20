@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart' as ja;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:songloft_flutter/core/audio/audio_service.dart';
@@ -11,6 +13,9 @@ class _Player implements ja.AudioPlayer {
   final events = StreamController<ja.PlaybackEvent>.broadcast(sync: true);
   final states = StreamController<ja.ProcessingState>.broadcast(sync: true);
   final playingEvents = StreamController<bool>.broadcast(sync: true);
+  final errors = StreamController<ja.PlayerException>.broadcast(sync: true);
+  @override
+  Stream<ja.PlayerException> get errorStream => errors.stream;
   @override
   bool playing = true;
   @override
@@ -55,6 +60,9 @@ class _Player implements ja.AudioPlayer {
     playingEvents.add(true);
   }
 
+  @override
+  Future<void> pause() async => playing = false;
+
   void emit(ja.ProcessingState state) {
     processingState = state;
     states.add(state);
@@ -66,6 +74,7 @@ class _Player implements ja.AudioPlayer {
     await events.close();
     await states.close();
     await playingEvents.close();
+    await errors.close();
   }
 
   @override
@@ -74,7 +83,26 @@ class _Player implements ja.AudioPlayer {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  late Directory temporaryDirectory;
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    temporaryDirectory = await Directory.systemTemp.createTemp(
+      'songloft-stop-',
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (_) async => temporaryDirectory.path,
+        );
+  });
+  tearDown(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          null,
+        );
+    await temporaryDirectory.delete(recursive: true);
+  });
   for (final failStop in [false, true]) {
     test(
       'late events cannot resurrect stopped session (failure=$failStop)',
@@ -113,6 +141,44 @@ void main() {
       },
     );
   }
+
+  test(
+    'live reconnect keeps buffering media session and pause clears intent',
+    () async {
+      final player = _Player()..playing = false;
+      final handler = SongloftAudioHandler(player: player);
+      addTearDown(handler.dispose);
+      player.emit(ja.ProcessingState.idle);
+      handler.setLiveReconnecting(true);
+      expect(
+        handler.playbackState.value.processingState,
+        AudioProcessingState.buffering,
+      );
+      expect(handler.playbackState.value.playing, isTrue);
+      expect(
+        handler.playbackState.value.controls,
+        contains(MediaControl.pause),
+      );
+      player.emit(ja.ProcessingState.idle);
+      expect(
+        handler.playbackState.value.processingState,
+        AudioProcessingState.buffering,
+      );
+      await handler.pause();
+      expect(handler.playbackState.value.playing, isFalse);
+      expect(
+        handler.playbackState.value.processingState,
+        AudioProcessingState.idle,
+      );
+      handler.setLiveReconnecting(true);
+      await handler.stop();
+      expect(handler.playbackState.value.playing, isFalse);
+      expect(
+        handler.playbackState.value.processingState,
+        AudioProcessingState.idle,
+      );
+    },
+  );
 
   test(
     'stop invalidates song load waiting for session initialization',
@@ -165,4 +231,50 @@ void main() {
       AudioProcessingState.idle,
     );
   });
+
+  test(
+    'pause invalidates a pending load and cancels reconnect intent',
+    () async {
+      final player = _Player();
+      final handler = SongloftAudioHandler(player: player);
+      addTearDown(handler.dispose);
+      await handler.ensureInitialized();
+      var cancellations = 0;
+      handler.onPlaybackCancelled = () => cancellations++;
+      final loading = handler.playSong(
+        Song.fromJson({
+          'id': 1,
+          'title': 'radio',
+          'type': 'radio',
+          'is_live': true,
+          'url': 'https://radio.example.test/live',
+        }),
+      );
+      await player.sourceStarted.future.timeout(const Duration(seconds: 5));
+      await handler.pause();
+      player.sourceLoaded.complete(null);
+      await loading;
+      expect(cancellations, 1);
+      expect(player.playCalls, 0);
+    },
+  );
+
+  test(
+    'stream errors reconnect only before stop and play delegates resume',
+    () async {
+      final player = _Player();
+      final handler = SongloftAudioHandler(player: player);
+      addTearDown(handler.dispose);
+      var errors = 0;
+      handler.onPlaybackError = () => errors++;
+      player.errors.add(ja.PlayerException(1, 'network lost', null));
+      expect(errors, 1);
+      await handler.stop();
+      player.errors.add(ja.PlayerException(1, 'late error', null));
+      expect(errors, 1);
+      handler.onPlayRequested = () async => true;
+      await handler.play();
+      expect(player.playCalls, 0);
+    },
+  );
 }

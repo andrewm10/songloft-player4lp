@@ -10,6 +10,14 @@ Include rule, scope, full owner/repo#number, failure/fix commit SHAs, actual val
 
 ## Entries
 
+### AUDIO-004: A live disconnect is not song completion; reconnection needs playback intent and cancellation boundaries
+
+- Scope: Flutter live radio, playback retry and audio_service media sessions, songloft-org/songloft#531; baseline `d89934eea468c22f635d28e5bfd0b5fe81c98147`.
+- Evidence: with the old Provider isolated, live completion advances according to play mode/queued-next requests and exhausted network retries switch to station B. The old backoff produces a zero delay for a very large retry count. The first API 34 native run confirmed continued requests for A after disconnection, while failed loads put MediaSession into idle and deactivate it. Host memory pressure interrupted that run, so it is incomplete device acceptance.
+- Rule and fix: route `isLive` completion/errors to the same station, retry outside finite song budgets and clamp the exponent before calculation. Disconnects do not consume finish events, queued-next requests or sleep song counts. Pause/stop/skip/dispose invalidate the old generation; pause invalidates pending source loads. Publish buffering with playback intent during reconnection to preserve notification controls, clearing it on cancellation.
+- Done right: 291 audio, player-domain and real-Provider tests pass, covering same-station recovery after three simulated offline minutes, cancellation, media play and sleep timers. The final full suite passes 767 tests; the API 34 emulator passes same-station recovery after a 110-second outage and media pause/resume/stop checks. Full code objects are in the [#531 record](docs/en/issue-531.md) and `/tmp/songloft-531-20261020/`. An emulator with synthetic sources does not replace the reporter's hardware and long background use.
+- Seen 1× (2026-10-20). Status: lesson; local validation preceded commit; Git/CI provides the final commit and release status.
+
 ### AUDIO-003: a libmpv error log is not a fatal error; check whether playback actually stopped before declaring the track finished
 
 - Scope: native platforms (Win/Linux/macOS/Android/iOS) on media_kit/libmpv, songloft-org/songloft#529, baseline `1dcc52612f6242a0598b3c06c946200a5d2f1ec5`.
