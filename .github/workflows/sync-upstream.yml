@@ -192,14 +192,29 @@ jobs:
       - name: Commit & push if changed (否则跳过，不触发构建)
         if: inputs.mode != 'report'
         run: |
+          BRANCH="${{ github.ref_name }}"
+          # 先提交可能残留的改动（例如重打的方控补丁、兜底清理掉的上游文件）
           git add -A
-          if git diff --cached --quiet; then
-            echo "上游无更新，跳过推送与构建。"
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: sync upstream songloft-player + reapply Leapmotor 方控 patch"
+          fi
+
+          # 是否需要推送，**不能**再看「有没有暂存改动」：
+          #   干净合并时 git 会自动生成 merge commit；冲突路径由上一个步骤 git commit 完成合并。
+          #   这两种情况下 index 与 HEAD 一致、没有任何暂存改动，但本地确实领先于远端，
+          #   若沿用旧判断就会打印「上游无更新」后退出 → 合并永远不会被推送，构建也不触发。
+          # 正确做法：直接比对本地 HEAD 与远端分支 tip。
+          git fetch origin "$BRANCH"
+          LOCAL_SHA="$(git rev-parse HEAD)"
+          REMOTE_SHA="$(git rev-parse FETCH_HEAD)"
+          echo "本地 HEAD   : $LOCAL_SHA"
+          echo "远端 $BRANCH : $REMOTE_SHA"
+          if [ "$LOCAL_SHA" = "$REMOTE_SHA" ]; then
+            echo "与远端一致（上游无新提交），跳过推送与构建。"
             exit 0
           fi
-          git commit -m "chore: sync upstream songloft-player + reapply Leapmotor 方控 patch"
-          git push origin HEAD:${{ github.ref_name }}
-          echo "已推送合并，build-apk.yml 将自动触发并出包。"
+          git push origin "HEAD:$BRANCH"
+          echo "已推送 $LOCAL_SHA 到 $BRANCH，build-apk.yml 将自动触发并出包。"
 
       # 无论成败都跑：清掉可能残留的半成品合并状态，避免脏 checkout 影响下一次运行
       - name: 安全兜底：回滚未完成的合并状态
