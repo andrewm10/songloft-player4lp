@@ -61,7 +61,7 @@ jobs:
 
       # 参照 DiPlay：合并前先看清上游改了什么，以及与「我方补丁面」是否重叠。
       # 我方补丁面 = 会被 CI 重写/注入的文件，上游一旦动过就需人工确认我方改动是否仍成立。
-      - name: Preflight: 上游改了什么（合并前报告）
+      - name: "Preflight: 上游改了什么（合并前报告）"
         env:
           MODE: ${{ inputs.mode || 'sync' }}
           OUR_FILES: |
