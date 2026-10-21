@@ -6,6 +6,7 @@ import '../../../../core/theme/responsive.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../../home/domain/home_grid_config.dart';
 import '../../../home/presentation/providers/home_grid_config_provider.dart';
+import '../../../home/presentation/providers/home_favorites_visibility_provider.dart';
 
 /// 首页歌单网格行列选择器（设置 → 外观，songloft-org/songloft#332）。
 ///
@@ -22,6 +23,10 @@ class HomeGridSelector extends ConsumerWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final config = ref.watch(homeGridConfigProvider);
     final notifier = ref.read(homeGridConfigProvider.notifier);
+    final favorites = ref.watch(homeFavoritesVisibilityProvider);
+    final favoritesNotifier = ref.read(
+      homeFavoritesVisibilityProvider.notifier,
+    );
 
     final columnsLabel =
         config.isAutoColumns
@@ -52,6 +57,20 @@ class HomeGridSelector extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(l10n.settingsHomeShowFavorites),
+          subtitle: Text(l10n.settingsHomeShowFavoritesDesc),
+          value: favorites.showFavorites,
+          onChanged: favoritesNotifier.setShowFavorites,
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(l10n.settingsHomeShowRadioFavorites),
+          subtitle: Text(l10n.settingsHomeShowRadioFavoritesDesc),
+          value: favorites.showRadioFavorites,
+          onChanged: favoritesNotifier.setShowRadioFavorites,
+        ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: Text(l10n.settingsHomeShowRadios),

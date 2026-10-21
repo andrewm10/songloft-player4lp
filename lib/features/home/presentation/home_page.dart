@@ -18,6 +18,7 @@ import '../../player/presentation/providers/player_provider.dart';
 import '../../playlist/presentation/providers/playlist_provider.dart';
 import '../domain/home_grid_config.dart';
 import 'providers/home_grid_config_provider.dart';
+import 'providers/home_favorites_visibility_provider.dart';
 import 'widgets/playlist_carousel.dart';
 import 'widgets/section_header.dart';
 import 'widgets/stats_strip.dart';
@@ -47,10 +48,13 @@ class _HomePageState extends ConsumerState<HomePage> {
     String type,
     PaginatedPlaylistsState? state, {
     required bool enabled,
+    int targetCount = kHomeAutoLoadAllMaxItems,
   }) {
     if (!enabled || state == null) return;
     if (!state.hasMore || state.isLoadingMore) return;
-    if (state.items.length >= kHomeAutoLoadAllMaxItems) return;
+    final visibility = ref.read(homeFavoritesVisibilityProvider);
+    final visibleCount = state.items.where(visibility.includes).length;
+    if (visibleCount >= targetCount) return;
     if (_autoLoadCursor[type] == state.items.length) return;
     _autoLoadCursor[type] = state.items.length;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -99,11 +103,27 @@ class _HomePageState extends ConsumerState<HomePage> {
         layout == HomePlaylistLayout.list ||
         (layout == HomePlaylistLayout.grid &&
             ref.watch(homeGridConfigProvider).isAllRows);
-    _maybeAutoLoadAll('normal', normalAsync.value, enabled: autoLoadAll);
+    final visibility = ref.watch(homeFavoritesVisibilityProvider);
+    bool hasFilteredCard(PaginatedPlaylistsState? state) =>
+        state?.items.any((playlist) => !visibility.includes(playlist)) ?? false;
+    _maybeAutoLoadAll(
+      'normal',
+      normalAsync.value,
+      enabled: autoLoadAll || hasFilteredCard(normalAsync.value),
+      targetCount:
+          autoLoadAll
+              ? kHomeAutoLoadAllMaxItems
+              : PaginatedPlaylistsNotifier.pageLimit,
+    );
     _maybeAutoLoadAll(
       'radio',
       radioAsync?.value,
-      enabled: autoLoadAll && showRadios,
+      enabled:
+          showRadios && (autoLoadAll || hasFilteredCard(radioAsync?.value)),
+      targetCount:
+          autoLoadAll
+              ? kHomeAutoLoadAllMaxItems
+              : PaginatedPlaylistsNotifier.pageLimit,
     );
 
     void retryAll() {
@@ -168,7 +188,10 @@ class _HomePageState extends ConsumerState<HomePage> {
     final currentPlaylistId = ref.watch(sourcePlaylistIdProvider);
     final isPlaying = ref.watch(isPlayingProvider);
 
-    // 类型分离已由后端 type 过滤完成，无需本地 where。
+    // Filter only homepage cards before layout limits; leave the shared list and labels intact.
+    final visibility = ref.watch(homeFavoritesVisibilityProvider);
+    normalPlaylists = normalPlaylists.where(visibility.includes).toList();
+    radioPlaylists = radioPlaylists.where(visibility.includes).toList();
 
     // 空状态：两类都空且都没失败（失败时走分区内联错误，别误报「还没有歌单」）
     if (normalPlaylists.isEmpty &&

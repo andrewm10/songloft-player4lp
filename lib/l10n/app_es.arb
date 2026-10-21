@@ -2960,6 +2960,10 @@
   "homeLayoutCarousel": "Carrusel horizontal",
   "homeLayoutGrid": "Cuadrícula",
   "homeLayoutList": "Lista vertical",
+  "settingsHomeShowFavorites": "Mostrar Favoritos en inicio",
+  "settingsHomeShowFavoritesDesc": "Solo controla la tarjeta de inicio. La biblioteca, las canciones y los favoritos siguen disponibles. Se guarda en este dispositivo para este servidor y cuenta.",
+  "settingsHomeShowRadioFavorites": "Mostrar Radios favoritas en inicio",
+  "settingsHomeShowRadioFavoritesDesc": "Solo controla la tarjeta de inicio cuando se muestra la sección de radios. Se guarda en este dispositivo para este servidor y cuenta.",
   "settingsHomeShowRadios": "Mostrar sección de radios",
   "settingsHomeShowRadiosDesc": "Mostrar Mis radios en inicio. Esta opción se guarda en este dispositivo."
 }

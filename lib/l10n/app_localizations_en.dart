@@ -4961,6 +4961,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeLayoutList => 'Vertical list';
 
   @override
+  String get settingsHomeShowFavorites => 'Show Favorites on home';
+
+  @override
+  String get settingsHomeShowFavoritesDesc =>
+      'Only controls the home card. Library access, songs and favorites stay available. Saved on this device for this server and account.';
+
+  @override
+  String get settingsHomeShowRadioFavorites => 'Show Radio favorites on home';
+
+  @override
+  String get settingsHomeShowRadioFavoritesDesc =>
+      'Only controls the home card when the radio section is shown. Saved on this device for this server and account.';
+
+  @override
   String get settingsHomeShowRadios => 'Show radio section';
 
   @override

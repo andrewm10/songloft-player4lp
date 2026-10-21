@@ -8592,6 +8592,30 @@ abstract class AppLocalizations {
   /// **'纵向列表'**
   String get homeLayoutList;
 
+  /// No description provided for @settingsHomeShowFavorites.
+  ///
+  /// In zh, this message translates to:
+  /// **'在首页显示收藏'**
+  String get settingsHomeShowFavorites;
+
+  /// No description provided for @settingsHomeShowFavoritesDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'仅控制首页卡片，曲库入口、歌曲和收藏功能照常可用。按服务器和账号保存在本机。'**
+  String get settingsHomeShowFavoritesDesc;
+
+  /// No description provided for @settingsHomeShowRadioFavorites.
+  ///
+  /// In zh, this message translates to:
+  /// **'在首页显示电台收藏'**
+  String get settingsHomeShowRadioFavorites;
+
+  /// No description provided for @settingsHomeShowRadioFavoritesDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'仅控制电台区块中的首页卡片，需开启「显示电台区块」。按服务器和账号保存在本机。'**
+  String get settingsHomeShowRadioFavoritesDesc;
+
   /// No description provided for @settingsHomeShowRadios.
   ///
   /// In zh, this message translates to:
