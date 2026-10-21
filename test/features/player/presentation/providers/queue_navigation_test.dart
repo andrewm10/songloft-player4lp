@@ -6,6 +6,7 @@ import 'package:dlna_dart/xmlParser.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:just_audio/just_audio.dart' as ja;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:songloft_flutter/core/audio/audio_service.dart';
@@ -32,11 +33,18 @@ import 'package:songloft_flutter/shared/models/song.dart';
 // Queue/navigation use real player and DLNA notifiers, with fake audio transports.
 class _Audio implements SongloftAudioHandler {
   final played = <int>[];
+  final attempted = <int>[];
   final failedIds = <int>{};
   final seeks = <Duration>[];
   Completer<void>? playGate;
   @override
   VoidCallback? onSongCompleted;
+  @override
+  VoidCallback? onPlaybackError;
+  @override
+  VoidCallback? onPlaybackCancelled;
+  @override
+  Future<bool> Function()? onPlayRequested;
   @override
   Stream<Duration> get positionStream => const Stream.empty();
   @override
@@ -54,6 +62,7 @@ class _Audio implements SongloftAudioHandler {
     int? audioTrack,
     bool normalize = false,
   }) async {
+    attempted.add(song.id);
     if (failedIds.contains(song.id)) throw StateError('audio source failed');
     played.add(song.id);
     await playGate?.future;
@@ -62,9 +71,9 @@ class _Audio implements SongloftAudioHandler {
   @override
   Future<void> setVolume(double volume) async {}
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async => onPlaybackCancelled?.call();
   @override
-  Future<void> pause() async {}
+  Future<void> pause() async => onPlaybackCancelled?.call();
   @override
   Future<void> seek(Duration position) async => seeks.add(position);
   @override
@@ -128,6 +137,14 @@ Song _song(int id) => Song(
   updatedAt: DateTime(2026),
 );
 
+Song _radio(int id) => Song.fromJson({
+  'id': id,
+  'title': 'Radio $id',
+  'type': 'radio',
+  'is_live': true,
+  'url': 'https://radio.example.test/$id',
+});
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late ProviderContainer container;
@@ -189,6 +206,140 @@ void main() {
           null,
         );
     await temporaryDirectory.delete(recursive: true);
+  });
+
+  for (final mode in PlayMode.values) {
+    test('live completion stays on station in $mode, preserving priority', () {
+      fakeAsync((clock) {
+        container.invalidate(appPreferencesProvider);
+        clock.flushMicrotasks();
+        unawaited(player.setPlayMode(mode));
+        unawaited(player.playPlaylist([_radio(1), _radio(2)]));
+        clock.flushMicrotasks();
+        unawaited(player.playSongNext(_radio(2)));
+        player.setSleepTimerAfterSongs(2);
+        clock.flushMicrotasks();
+        audio.onSongCompleted!();
+        audio.onSongCompleted!(); // Duplicate event must not fork retries.
+        clock.flushMicrotasks();
+        expect(container.read(playerStateProvider).currentSong?.id, 1);
+        expect(container.read(playerStateProvider).hasPriorityNext, isTrue);
+        expect(
+          container.read(playerStateProvider).sleepTimer?.remainingSongs,
+          2,
+        );
+        expect(container.read(playerStateProvider).isRetrying, isTrue);
+        clock.elapse(const Duration(seconds: 2));
+        expect(audio.played, [1, 1]);
+        expect(container.read(playerStateProvider).playMode, mode);
+        expect(container.read(playerStateProvider).isRetrying, isFalse);
+        container.dispose();
+      });
+    });
+  }
+
+  test(
+    'live loading retries beyond network budget then recovers same station',
+    () {
+      fakeAsync((clock) {
+        container.invalidate(appPreferencesProvider);
+        clock.flushMicrotasks();
+        audio.failedIds.add(1);
+        unawaited(player.playPlaylist([_radio(1), _radio(2)]));
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(minutes: 3));
+        expect(audio.attempted.length, greaterThan(8));
+        expect(audio.attempted.toSet(), {1});
+        expect(container.read(playerStateProvider).currentSong?.id, 1);
+        audio.failedIds.clear();
+        clock.elapse(const Duration(seconds: 10));
+        expect(audio.played, [1]);
+        expect(container.read(playerStateProvider).isRetrying, isFalse);
+        expect(container.read(playerStateProvider).infoMessage, isNull);
+        container.dispose();
+      });
+    },
+  );
+
+  for (final action in ['pause', 'stop', 'toggle', 'next', 'dispose']) {
+    test('$action cancels pending live reconnect and ignores late events', () {
+      fakeAsync((clock) {
+        container.invalidate(appPreferencesProvider);
+        clock.flushMicrotasks();
+        unawaited(player.playPlaylist([_radio(1), _radio(2)]));
+        clock.flushMicrotasks();
+        audio.onPlaybackError?.call();
+        clock.flushMicrotasks();
+        switch (action) {
+          case 'pause':
+            unawaited(audio.pause());
+          case 'stop':
+            unawaited(audio.stop());
+          case 'toggle':
+            unawaited(player.togglePlay());
+          case 'next':
+            unawaited(player.playNext());
+          case 'dispose':
+            container.dispose();
+        }
+        clock.flushMicrotasks();
+        if (action != 'next' && action != 'dispose') {
+          audio.onSongCompleted!();
+          audio.onPlaybackError?.call();
+        }
+        clock.elapse(const Duration(minutes: 3));
+        expect(audio.played, action == 'next' ? [1, 2] : [1]);
+        if (action != 'dispose') container.dispose();
+      });
+    });
+  }
+
+  test('notification play resumes a cancelled live station', () {
+    fakeAsync((clock) {
+      container.invalidate(appPreferencesProvider);
+      clock.flushMicrotasks();
+      unawaited(player.playPlaylist([_radio(1), _radio(2)]));
+      clock.flushMicrotasks();
+      unawaited(audio.pause());
+      clock.flushMicrotasks();
+      unawaited(audio.onPlayRequested?.call());
+      clock.flushMicrotasks();
+      expect(audio.played, [1, 1]);
+      container.dispose();
+    });
+  });
+
+  test('pause cancels unlimited initial live load retries', () {
+    fakeAsync((clock) {
+      container.invalidate(appPreferencesProvider);
+      clock.flushMicrotasks();
+      audio.failedIds.add(1);
+      unawaited(player.playPlaylist([_radio(1), _radio(2)]));
+      clock.flushMicrotasks();
+      expect(audio.attempted, [1]);
+      unawaited(audio.pause());
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(minutes: 3));
+      expect(audio.attempted, [1]);
+      expect(container.read(playerStateProvider).isRetrying, isFalse);
+      container.dispose();
+    });
+  });
+
+  test('duration sleep timer stops live reconnect', () {
+    fakeAsync((clock) {
+      container.invalidate(appPreferencesProvider);
+      clock.flushMicrotasks();
+      unawaited(player.playPlaylist([_radio(1), _radio(2)]));
+      clock.flushMicrotasks();
+      player.setSleepTimerByDuration(const Duration(seconds: 1));
+      audio.onSongCompleted!();
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(minutes: 3));
+      expect(audio.played, [1]);
+      expect(container.read(playerStateProvider).sleepTimer, isNull);
+      container.dispose();
+    });
   });
 
   test(

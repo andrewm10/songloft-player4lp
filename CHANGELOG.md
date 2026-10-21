@@ -2,6 +2,33 @@
 
 此文件记录 Songloft Flutter 客户端的版本变更，仅提供中文版本。版本 tag 的 Release 发布成功后，由 CI 根据 Conventional Commits 分类追加记录并提交到 `main`；滚动 dev 记录见 [GitHub Releases](https://github.com/songloft-org/songloft-player/releases/tag/dev)。
 
+## [v2.13.5] - 2026-10-20
+### :bug: 问题修复
+- [`203e79b`](https://github.com/songloft-org/songloft-player/commit/203e79b5fd7ac02b8edb93af291bb6981e62974f) - **player**: 电台断流持续重连并保留当前台 *(提交者 [@hanxi](https://github.com/hanxi))*
+- [`e22b755`](https://github.com/songloft-org/songloft-player/commit/e22b75561c0a0e93bd391dba324e66f09bcd395c) - **android**: 保留 JNI 协程运行时以修复启动卡住 *(提交者 [@hanxi](https://github.com/hanxi))*
+
+### :memo: 文档更新
+- [`2621aec`](https://github.com/songloft-org/songloft-player/commit/2621aecda59f70fec344954f000ba57532aa7abf) - **changelog**: 更新 v2.13.4 变更记录 *(提交者 [@github-actions[bot]](https://github.com/apps/github-actions))*
+
+### :wrench: 维护工作
+- [`98fe97d`](https://github.com/songloft-org/songloft-player/commit/98fe97d0ae23a16e5034a56337134c4b4aa142ce) - release version 2.13.5 *(提交者 [@hanxi](https://github.com/hanxi))*
+
+
+## [v2.13.4] - 2026-10-20
+### :bug: 问题修复
+- [`bb03a5c`](https://github.com/songloft-org/songloft-player/commit/bb03a5c49eb6701d90a73b924ed12ec388c6560c) - **player**: 优化大播放队列定位与批量追加 songloft-org/songloft[#525](https://github.com/songloft-org/songloft-player/pull/525) *(提交者 [@hanxi](https://github.com/hanxi))*
+- [`18b50cb`](https://github.com/songloft-org/songloft-player/commit/18b50cbca02a7470279ddcd04907f71365140a57) - **settings**: 明确增强对比度停用封面背景（Ref songloft-org/songloft[#523](https://github.com/songloft-org/songloft-player/pull/523)） *(提交者 [@hanxi](https://github.com/hanxi))*
+- [`a9e5dda`](https://github.com/songloft-org/songloft-player/commit/a9e5dda70b61e313ee9902b9bfc26691c16230c6) - **player**: 加深封面背景并修复取色 *(提交者 [@hanxi](https://github.com/hanxi))*
+- [`1dcc526`](https://github.com/songloft-org/songloft-player/commit/1dcc52612f6242a0598b3c06c946200a5d2f1ec5) - **player**: 桌面 HLS 电台请求头改走 tag，绕开 just_audio 回环代理 *(PR [#51](https://github.com/songloft-org/songloft-player/pull/51) by [@hurleychin](https://github.com/hurleychin))*
+- [`e49f245`](https://github.com/songloft-org/songloft-player/commit/e49f245d69ae4fdf6ac6b7bd0bc51b55ae763f62) - **audio**: 可恢复的解码错误不再跳过整首歌 *(提交者 [@hanxi](https://github.com/hanxi))*
+
+### :memo: 文档更新
+- [`00cbe94`](https://github.com/songloft-org/songloft-player/commit/00cbe94841acca3eaf561a339f61072914c9de31) - **changelog**: 更新 v2.13.3 变更记录 *(提交者 [@github-actions[bot]](https://github.com/apps/github-actions))*
+
+### :wrench: 维护工作
+- [`d89934e`](https://github.com/songloft-org/songloft-player/commit/d89934eea468c22f635d28e5bfd0b5fe81c98147) - release version 2.13.4 *(提交者 [@hanxi](https://github.com/hanxi))*
+
+
 ## [v2.13.3] - 2026-10-15
 ### :sparkles: 新增功能
 - [`8a21e26`](https://github.com/songloft-org/songloft-player/commit/8a21e2634f2d89efae1bfeb9627b9078f98078fc) - **player**: 优化歌词可读性并新增内置配色（Ref songloft-org/songloft[#523](https://github.com/songloft-org/songloft-player/pull/523)） *(提交者 [@hanxi](https://github.com/hanxi))*
@@ -66,3 +93,5 @@
 - [`17f15f1`](https://github.com/songloft-org/songloft-player/commit/17f15f18c23d098ec15a5b975eb946a892642749) — 将插件导航设置集中到插件管理页。
 [v2.13.2]: https://github.com/songloft-org/songloft-player/compare/v2.13.1...v2.13.2
 [v2.13.3]: https://github.com/songloft-org/songloft-player/compare/v2.13.2...v2.13.3
+[v2.13.4]: https://github.com/songloft-org/songloft-player/compare/v2.13.3...v2.13.4
+[v2.13.5]: https://github.com/songloft-org/songloft-player/compare/v2.13.4...v2.13.5

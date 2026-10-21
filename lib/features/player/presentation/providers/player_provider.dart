@@ -89,6 +89,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
   final QueueLoader _queueLoader = QueueLoader();
   int _playGeneration = 0; // 播放协程代次：用户快速切歌时，旧协程在 await 后发现 gen 变化即退出
   int _playGenerationAtSource = 0; // 当前音频源对应的代次，position stream 据此忽略切歌过渡期的旧位置
+  bool _livePlaybackRequested = false;
 
   // 播放失败重试 & 歌曲完成路由（domain use-cases）
   final PlaybackRetryPolicy _retryPolicy = PlaybackRetryPolicy();
@@ -116,6 +117,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
     _audioHandler.onSkipToNext = () => playNext();
     _audioHandler.onSkipToPrevious = () => playPrev();
     _audioHandler.onSongCompleted = _onSongCompleted;
+    _audioHandler.onPlaybackError = _reconnectLiveStream;
+    _audioHandler.onPlaybackCancelled = _cancelLivePlayback;
+    _audioHandler.onPlayRequested = _resumeLivePlayback;
     _audioHandler.onToggleFavorite = _toggleFavoriteFromNotification;
 
     // Web HLS 视频回调：playSong 中触发 → 直接创建 video DOM 元素开始播放
@@ -188,6 +192,9 @@ class PlayerNotifier extends Notifier<PlayerState> {
     }
     ref.onDispose(() {
       _disposed = true;
+      _audioHandler.onPlaybackError = null;
+      _audioHandler.onPlaybackCancelled = null;
+      _audioHandler.onPlayRequested = null;
       _positionSubscription?.cancel();
       _durationSubscription?.cancel();
       _playerStateSubscription?.cancel();
@@ -379,20 +386,23 @@ class PlayerNotifier extends Notifier<PlayerState> {
     ) {
       final isLive = state.currentSong?.isLive ?? false;
       final wasPlaying = state.isPlaying;
+      final playing =
+          (isLive && _livePlaybackRequested && state.isRetrying) ||
+          playerState.playing;
       state = state.copyWith(
-        isPlaying: playerState.playing,
+        isPlaying: playing,
         isBuffering:
             playerState.processingState == ja.ProcessingState.loading ||
             (playerState.processingState == ja.ProcessingState.buffering &&
                 !isLive),
       );
-      if (wasPlaying != playerState.playing) {
+      if (wasPlaying != playing) {
         _liveActivity.updatePlaybackState(
-          isPlaying: playerState.playing,
+          isPlaying: playing,
           progress: state.progress,
         );
-        HomeWidgetService().updatePlaybackState(playerState.playing);
-        if (playerState.playing) {
+        HomeWidgetService().updatePlaybackState(playing);
+        if (playing) {
           HomeWidgetService().startProgressUpdates(
             currentPosition: () => _audioHandler.playbackState.value.position,
             currentDuration:
@@ -521,6 +531,10 @@ class PlayerNotifier extends Notifier<PlayerState> {
   /// 歌曲播放完成处理
   void _onSongCompleted() {
     if (ref.read(dlnaStateProvider).isCasting) return;
+    if (state.currentSong?.isLive ?? false) {
+      _reconnectLiveStream();
+      return;
+    }
     _retryPolicy.recordSuccess();
     debugPrint('[Player] Song completed, playMode: ${state.playMode}');
 
@@ -594,6 +608,48 @@ class PlayerNotifier extends Notifier<PlayerState> {
         );
         break;
     }
+  }
+
+  // 直播没有自然结束：断流不消耗睡眠歌曲数、下一首预约或播放顺序。
+  void _reconnectLiveStream() {
+    if (_disposed ||
+        !_livePlaybackRequested ||
+        !(state.currentSong?.isLive ?? false) ||
+        ref.read(dlnaStateProvider).isCasting ||
+        _playGenerationAtSource != _playGeneration) {
+      return;
+    }
+    final gen = ++_playGeneration;
+    unawaited(_playCurrent(gen, reconnectLive: true));
+  }
+
+  void _cancelLivePlayback() {
+    if (_disposed || !_livePlaybackRequested) return;
+    _livePlaybackRequested = false;
+    ++_playGeneration;
+    state = state.copyWith(
+      isPlaying: false,
+      isRetrying: false,
+      clearInfoMessage: true,
+    );
+  }
+
+  Future<bool> _resumeLivePlayback() async {
+    if (_disposed ||
+        !(state.currentSong?.isLive ?? false) ||
+        ref.read(dlnaStateProvider).isCasting) {
+      return false;
+    }
+    // 媒体通知的播放键也必须能从停止/断流恢复；重连期间不另开加载链。
+    if (_livePlaybackRequested && state.isRetrying) return true;
+    if (!_livePlaybackRequested ||
+        _audioHandler.processingState == ja.ProcessingState.idle ||
+        _audioHandler.processingState == ja.ProcessingState.completed) {
+      final gen = ++_playGeneration;
+      unawaited(_playCurrent(gen));
+      return true;
+    }
+    return false;
   }
 
   /// 播放单曲（添加到播放列表并播放）
@@ -895,7 +951,8 @@ class PlayerNotifier extends Notifier<PlayerState> {
       return;
     }
 
-    if (state.isPlaying) {
+    if (state.isPlaying ||
+        ((state.currentSong?.isLive ?? false) && state.isRetrying)) {
       if (state.currentSong?.isLive ?? false) {
         debugPrint('[Player] togglePlay: stopping live stream');
         await _audioHandler.stop();
@@ -1982,6 +2039,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
   /// 当前协程是否已被新一次切歌取代。
   bool _isSuperseded(int gen, String where) {
+    if (_disposed) return true;
     if (gen == _playGeneration) return false;
     debugPrint(
       '[Player] _playCurrent superseded at $where: gen=$gen current=$_playGeneration',
@@ -2004,7 +2062,8 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   /// 播放当前歌曲（带自动重试）
-  Future<void> _playCurrent(int gen) async {
+  Future<void> _playCurrent(int gen, {bool reconnectLive = false}) async {
+    if (_isSuperseded(gen, 'start')) return;
     final song = state.currentSong;
     if (song == null) {
       debugPrint('[Player] _playCurrent: no current song');
@@ -2015,6 +2074,8 @@ class PlayerNotifier extends Notifier<PlayerState> {
       await ref.read(dlnaStateProvider.notifier).castSong(song);
       return;
     }
+    _livePlaybackRequested = song.isLive;
+    _audioHandler.setLiveReconnecting(reconnectLive);
 
     final previousSong = _lastPlayedSong;
     _lastPlayedSong = song;
@@ -2040,17 +2101,26 @@ class PlayerNotifier extends Notifier<PlayerState> {
     // 已在后台全量下载缓存，故用更多次数 + 递增退避重试，等缓存就绪后重试即秒开。
     // 本地歌曲维持原有快速少量重试。
     final isNetworkSong =
-        song.type != 'local' && (song.url?.isNotEmpty ?? false);
+        song.isLive ||
+        (song.type != 'local' && (song.url?.isNotEmpty ?? false));
     final maxRetry = _retryPolicy.maxAttempts(isNetworkSong: isNetworkSong);
 
-    for (int retry = 0; retry <= maxRetry; retry++) {
+    for (
+      int retry = reconnectLive ? 1 : 0;
+      song.isLive || retry <= maxRetry;
+      retry++
+    ) {
       if (_isSuperseded(gen, 'retry-loop-top')) return;
       try {
         if (retry > 0) {
           debugPrint('[Player] Retry $retry/$maxRetry for: ${song.title}');
-          state = state.copyWith(isRetrying: true);
+          state = state.copyWith(
+            isRetrying: true,
+            isPlaying: song.isLive || state.isPlaying,
+          );
+          if (song.isLive) _audioHandler.setLiveReconnecting(true);
           // 网络歌曲：首次重试时提示"正在缓存"，让用户知道在等后台缓存而非卡死。
-          if (isNetworkSong && retry == 1) {
+          if (isNetworkSong && !song.isLive && retry == 1) {
             state = state.copyWith(infoMessage: l10n.playerCaching);
           }
           final delay = _retryPolicy.delay(
@@ -2094,6 +2164,7 @@ class PlayerNotifier extends Notifier<PlayerState> {
 
         // 播放成功 - 重置连续失败计数
         _retryPolicy.recordSuccess();
+        _audioHandler.setLiveReconnecting(false);
         state = state.copyWith(
           hasPriorityNext: _modeResolver.hasPriorityNext,
           isRetrying: false,

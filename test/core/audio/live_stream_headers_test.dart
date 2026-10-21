@@ -13,6 +13,8 @@ import 'package:songloft_flutter/shared/models/song.dart';
 /// 只为构造 handler 的最小假播放器：本组测试不触发任何播放调用。
 class _NoopPlayer implements ja.AudioPlayer {
   @override
+  Stream<ja.PlayerException> get errorStream => const Stream.empty();
+  @override
   final Stream<ja.PlaybackEvent> playbackEventStream =
       const Stream<ja.PlaybackEvent>.empty();
   @override

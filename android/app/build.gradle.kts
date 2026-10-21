@@ -71,6 +71,7 @@ android {
             val releaseConfig = signingConfigs.findByName("release")
             signingConfig = if (releaseConfig?.storeFile != null) releaseConfig
                             else signingConfigs.getByName("debug")
+            proguardFiles("proguard-rules.pro")
         }
     }
 }

@@ -20,7 +20,7 @@
 **唯一能忠实反映「本地 APK 原生层支持什么」的信号只能运行时从不被热更的 Kotlin 读取**(Dart/Go 侧常量都会被补丁覆盖)。为此引入原生契约哈希闸:
 
 - **两个哈希**,由原生 channel `com.songloft/contract` 的 `getHash` 一次返回 `{"dart","go"}`:
-  - `dart` = Dart↔原生契约 = {所有 `com.songloft/*` channel 名 + 方法名集合 + `GeneratedPluginRegistrant` 插件集 + `.flutter-plugins-dependencies` 里 android 原生插件 name+version}。门控**前端 libapp.so**(标准版 + bundle 都用)。
+  - `dart` = Dart↔原生契约 = {所有 `com.songloft/*` channel 名 + 方法名集合 + `GeneratedPluginRegistrant` 插件集 + `.flutter-plugins-dependencies` 里 android 原生插件 name+version + release ProGuard 规则}。门控**前端 libapp.so**(标准版 + bundle 都用)。ProGuard 规则改变 JNI 描述符时也需要整包 APK；只修改规则的注释和空行不改变哈希。
   - `go` = `sha256(mobile/export_surface.txt)`。门控**后端 libgojni.so**(仅 bundle),补上「老 APK Kotlin vs 新 libgojni 运行时错配」——这是 CI 导出面冻结守卫看不到的维度。
 - **值的来源**:CI 用 `scripts/compute_native_contract.sh`(确定性)在 `flutter build apk` 前算出,同时写进 APK asset `android/app/src/main/assets/native_contract.json`(Kotlin 读它返回)与热更 manifest(`patch.contractHash` / `backend.contractHash`),**同源同值**。
 - **比对**:`checkPatch` 里 `contractHashBlocks(manifestHash, deviceHash)`——两端非空且不同 → 返回 null(落整包)。**任一为空**(老宿主无此 channel / 本地开发无 asset / 老式 manifest 无字段)→ 视为未知、**不拦截**(降级),同 `flutterBinding` 闸。

@@ -37,7 +37,7 @@ class PlaybackRetryPolicy {
       return const Duration(milliseconds: _retryDelayLocalMs);
     }
     final ms = min(
-      _networkRetryBaseDelayMs * pow(2, attempt).toInt(),
+      _networkRetryBaseDelayMs * pow(2, attempt.clamp(0, 3)).toInt(),
       _networkRetryMaxDelayMs,
     );
     return Duration(milliseconds: ms);

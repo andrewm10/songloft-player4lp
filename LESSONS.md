@@ -10,6 +10,23 @@
 
 ## 条目
 
+### ANDROID-001：JNI 参数类型属于原生契约，debug 启动通过不能替代 release 验收
+
+- 范围：Android 标准版 / Bundle 的 R8 混淆、SharedPreferences 初始化与热更新兼容哈希；基线 `203e79b5fd7ac02b8edb93af291bb6981e62974f`，正式包源码 `d89934eea468c22f635d28e5bfd0b5fe81c98147`。
+- 失败证据：2026-10-20，反馈 2.13.4 卡在「正在启动」，卸载重装无效。正式 x86_64 APK（SHA-256 `01812553e6cfc32e80b095f956c2f291dfc5f54500195b9a9a05e258a46769bf`）在隔离 API 34 模拟器初始化设置时复现 `SharedPreferencesApiRegistrar.getAll` 的 `NoSuchMethodError`。DEX 中实参为 `LE3/d;`，JNI 仍查找 `Lkotlin/coroutines/Continuation;`。2026-10-21 补查用户指定的正式 ARM64 包（SHA-256 `54e9bd33a8aaa305b1a210160e539f2faf4c4782d17a09aa6e63a0f5af8b576c`），同样未通过 JNI 检查，且两个 DEX 均与 x86_64 正式包逐字节一致；红米 K40 为用户报告，未作为真机验收。发布 CI 证实 2.13.3 解析 `shared_preferences_android 2.4.28`，2.13.4 解析 `2.5.1`；后者通过 JNI 调用 Kotlin suspend 方法。此前无服务器的 widget 测试、debug 包和网络超时回归不能发现 release 混淆错误；网络加固已另存证据目录，不作为本事故修复。
+- 规则与修复：在 release 中加载 ProGuard 规则，用 `-keep,includedescriptorclasses` 同时保留设置插件桥及其参数类型，并核对 `package:jni` 的 `lib/src/kotlin.dart`，保留其按名字查找的协程、Result/Failure 与 Unit 类及成员。只保留方法描述符的首个候选包虽通过初版静态检查，原生启动仍报 `CoroutineSingletons` 类缺失；已保留 `candidate-descriptors-only.apk`、`native-partial.log` 与 `partial-startup.png` 作为反例，扩展后的 APK 检查会拒绝它。标准版 / Bundle CI 逐一检查 ARM64、ARMv7 与 x86_64 release APK 的 `getAll` 描述符和这些运行时符号。ProGuard 规则纳入原生契约哈希，规则改变需整包更新，避免向旧 APK 仅下发 Dart 补丁；注释和空行不改变哈希。
+- 验证记录：`/tmp/songloft-startup-20261020/` 的 `release-sharedprefs-dex.txt`、`jni-before.log`、`release-ci.log`、`release-2.13.3-android.log` 与 `native-contract-{before,test}.log`。旧正式包被新 APK 检查按预期拒绝；旧哈希脚本在新增兼容性回归下失败，新脚本通过。修复包构建、DEX 与原生启动验收以 `validation-native.json` 为准，不将首次因引擎下载失败的构建写成通过。
+- Done right（2026-10-21）：Linux amd64 / Flutter 3.44.8 / Dart 3.12.2 / shared_preferences_android 2.5.1 / jni 1.1.0；完整混淆 release APK 构建和桥接/协程运行时符号检查通过，6 项启动/契约 Dart 测试及 1 项脚本回归通过，静态分析无问题。API 34/x86_64 全新安装与第二次冷启动均进入登录页，日志无原生查找异常；截图 `final-{startup,restart}.png`，日志 `native-final.log`。首次下载失败及两次构建机 OOM 均保留失败日志；最终使用镜像、单 worker、受限堆和串行 GC 完成构建，不修改发布配置的并发/内存默认值。补验 ARM64 分架构 release 构建、完整 JNI 检查、原生契约 asset 一致性与仅包含 ARM64 原生库均通过；产物 `songloft-startup-fixed-arm64-v8a.apk`，SHA-256 `1be79259583a4f0ee6d0962c682d868a99f936ef56009d25d5f724728d835504`，记录 `release-build-arm64.log` 与 `jni-fixed-arm64.log`。APK 使用本地调试证书签署，仅供验证；Not run：报告人 ARM 真机、正式签名发布包、Bundle 本地后端和远端 CI。
+- Seen 1× (2026-10-20)。状态：已确认的 release 原生故障，已完成本地修复；设备、最终提交与构建覆盖见验证记录，正式版发布单独追踪。
+
+### AUDIO-004：直播断流不是歌曲完成，重连必须保留播放意图与取消边界
+
+- 范围：Flutter 直播电台、播放重试及 audio_service 媒体会话，songloft-org/songloft#531；基线 `d89934eea468c22f635d28e5bfd0b5fe81c98147`。
+- 证据：隔离旧 Provider 后，直播完成按播放模式/下一首预约推进，加载失败耗尽网络重试后切到 B 台；旧退避对极大重试次数算出零延迟。API 34 原生首轮确认断流后继续请求 A 台，同时发现加载失败使 MediaSession 进入 idle 并失活；该轮因宿主内存压力中断，不算完整设备验收。
+- 规则与修复：`isLive` 的完成/错误走当前台重连，在有限歌曲重试预算外持续退避，计算前截断指数；断流不消费歌曲完成事件、下一首预约或睡眠歌曲数。暂停/停止/换台/销毁使旧代次失效，暂停废弃尚未完成的源加载；重连期间发布 buffering 与播放意图以保留通知控制，取消时清除。
+- Done right：修复后音频、播放器 domain 与真实 Provider 共 291 项测试通过，覆盖三分钟离线后原台恢复、取消、媒体播放键及睡眠定时器。最终全量 767 项通过，API 34 模拟器完成 110 秒断网原台恢复及媒体暂停/继续/停止验证。完整验证对象见 [#531 记录](docs/cn/issue-531.md) 与 `/tmp/songloft-531-20261020/`；模拟器和合成源不替代报告人真机与长后台。
+- Seen 1× (2026-10-20)。状态：经验；本地验证在提交前完成，最终提交及发布状态以 Git/CI 为准。
+
 ### AUDIO-003：libmpv 的 error 日志不等于致命错误，判定曲目结束前要看播放是否真的停住
 
 - 范围：原生端（Win/Linux/macOS/Android/iOS）media_kit/libmpv 播放，songloft-org/songloft#529，基线 `1dcc52612f6242a0598b3c06c946200a5d2f1ec5`。

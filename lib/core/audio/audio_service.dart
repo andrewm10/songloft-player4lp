@@ -41,6 +41,7 @@ class SongloftAudioHandler extends BaseAudioHandler with SeekHandler {
   final ja.AudioPlayer _player;
 
   bool _stopped = false;
+  bool _liveReconnecting = false;
   int _loadGeneration = 0;
 
   bool _isCurrentLoad(int generation) =>
@@ -93,6 +94,9 @@ class SongloftAudioHandler extends BaseAudioHandler with SeekHandler {
   VoidCallback? onSkipToNext;
   VoidCallback? onSkipToPrevious;
   VoidCallback? onSongCompleted;
+  VoidCallback? onPlaybackError;
+  VoidCallback? onPlaybackCancelled;
+  Future<bool> Function()? onPlayRequested;
   VoidCallback? onToggleFavorite;
   Future<void> Function()? onTaskRemovedCallback;
 
@@ -117,6 +121,7 @@ class SongloftAudioHandler extends BaseAudioHandler with SeekHandler {
   late final StreamSubscription<PlaybackState> _playbackLogSub;
   late final StreamSubscription<ja.ProcessingState> _processingStateSub;
   late final StreamSubscription<bool> _playingStateSub;
+  late final StreamSubscription<ja.PlayerException> _playerErrorSub;
   late final StreamSubscription<Object> _asyncErrorSub;
   StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
   bool _disposed = false;
@@ -141,6 +146,10 @@ class SongloftAudioHandler extends BaseAudioHandler with SeekHandler {
       playbackState.add(_buildPlaybackState());
     });
     debugPrint('[AudioService] ✓ playbackEventStream 已绑定');
+
+    _playerErrorSub = _player.errorStream.listen((error) {
+      if (!_disposed && !_stopped) onPlaybackError?.call();
+    });
 
     // 监听 playbackState 变化，用于排查通知栏问题
     _playbackLogSub = playbackState.listen((state) {
@@ -294,6 +303,13 @@ class SongloftAudioHandler extends BaseAudioHandler with SeekHandler {
     _broadcastState();
   }
 
+  /// 重连仍代表播放意图，保持前台媒体会话及暂停/停止按钮可用。
+  void setLiveReconnecting(bool reconnecting) {
+    if (_disposed) return;
+    _liveReconnecting = reconnecting;
+    _broadcastState();
+  }
+
   /// 标准停止动作在 Android 12 及以下进入通知按钮列表，audio_service 在
   /// Android 13+ 自动把它转换为系统面板的自定义停止动作。无需另加 customAction，
   /// 否则旧版缺少通知按钮、新版可能重复。停止播放不退出正在浏览的界面。
@@ -310,9 +326,10 @@ class SongloftAudioHandler extends BaseAudioHandler with SeekHandler {
   /// 依据 `_player` 当前快照构建一份 audio_service [PlaybackState]。
   /// 抽出成独立方法，供 playbackEventStream 转换与 play/pause 等动作后的主动重播共用。
   PlaybackState _buildPlaybackState() {
+    final playing = !_stopped && (_player.playing || _liveReconnecting);
     return PlaybackState(
       controls: buildMediaControls(
-        playing: !_stopped && _player.playing,
+        playing: playing,
         favoriteSupported: _favoriteControlSupported,
         favorited: _isCurrentSongFavorited,
       ),
@@ -341,6 +358,8 @@ class SongloftAudioHandler extends BaseAudioHandler with SeekHandler {
       processingState:
           _stopped
               ? AudioProcessingState.idle
+              : _liveReconnecting
+              ? AudioProcessingState.buffering
               : const {
                 ja.ProcessingState.idle: AudioProcessingState.idle,
                 ja.ProcessingState.loading: AudioProcessingState.loading,
@@ -348,7 +367,7 @@ class SongloftAudioHandler extends BaseAudioHandler with SeekHandler {
                 ja.ProcessingState.ready: AudioProcessingState.ready,
                 ja.ProcessingState.completed: AudioProcessingState.completed,
               }[_player.processingState]!,
-      playing: !_stopped && _player.playing,
+      playing: playing,
       updatePosition: _player.position,
       bufferedPosition: _player.bufferedPosition,
       speed: _player.speed,
@@ -381,6 +400,7 @@ class SongloftAudioHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> play() async {
     if (_disposed) return;
+    if (await onPlayRequested?.call() == true) return;
     _stopped = false;
     debugPrint(
       '[AudioService] ▶️ play() 被调用 (before: playing=${_player.playing}, '
@@ -406,6 +426,9 @@ class SongloftAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> pause() async {
+    _liveReconnecting = false;
+    _loadGeneration++;
+    onPlaybackCancelled?.call();
     debugPrint(
       '[AudioService] ⏸️ pause() 被调用 (before: playing=${_player.playing}, '
       'ps=${_player.processingState})',
@@ -430,7 +453,9 @@ class SongloftAudioHandler extends BaseAudioHandler with SeekHandler {
     debugPrint('[AudioService] ⏹️ stop() 被调用');
     // 底层迟到的 ready/completed 事件不能重新建立通知或触发自动切歌。
     _stopped = true;
+    _liveReconnecting = false;
     _loadGeneration++;
+    onPlaybackCancelled?.call();
     _broadcastState();
     // Web HLS 视频主控模式：just_audio 无音源，停止 video 元素
     if (hlsVideoPrimaryMode && onStopHlsVideo != null) {
@@ -1285,6 +1310,7 @@ class SongloftAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    onPlaybackCancelled?.call();
 
     debugPrint('[AudioService] dispose 开始');
     await _interruptionSub?.cancel();
@@ -1292,6 +1318,7 @@ class SongloftAudioHandler extends BaseAudioHandler with SeekHandler {
     await _processingStateSub.cancel();
     debugPrint('[AudioService] processingState subscription canceled');
     await _playingStateSub.cancel();
+    await _playerErrorSub.cancel();
     debugPrint('[AudioService] playing state subscription canceled');
     await _playbackLogSub.cancel();
     debugPrint('[AudioService] playback log subscription canceled');

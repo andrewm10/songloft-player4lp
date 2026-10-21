@@ -20,6 +20,12 @@ void main() {
   });
 
   group('delay', () {
+    test('unlimited live retries keep a finite capped delay', () {
+      expect(
+        policy.delay(attempt: 100000, isNetworkSong: true),
+        const Duration(seconds: 10),
+      );
+    });
     test('local song always returns 1000ms', () {
       for (int attempt = 0; attempt < 5; attempt++) {
         expect(
