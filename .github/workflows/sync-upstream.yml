@@ -2,13 +2,32 @@ name: Sync upstream & build
 
 # 自动跟随上游：每天 UTC 03:00 检查 songloft-org/songloft-player 是否有更新；
 # 有更新则合并、重打方控补丁、推回本 fork，推送会触发 build-apk.yml 自动出包。
-# 也可在 Actions 页手动 Run workflow 立即同步。
-# 说明：GitHub cron 为 UTC 时间；如需更高频可改下面 cron 表达式
-# （字段：分 时 日 月 周，例如 "0 */6 * * *" 为每 6 小时一次）。
+# 也可在 Actions 页手动 Run workflow 立即同步（可选 report 模式：只报告上游改了什么，不动仓库）。
+#
+# 合并策略参考了 DiPlay-Leapmotor 的 scripts/sync-upstream.sh，沿用其三条保护：
+#   1) 合并前先「报告」上游改了什么、是否命中我方补丁面——问题提前暴露，而不是合并失败才后知后觉；
+#   2) 上游 tag 拉进独立命名空间 refs/tags/upstream/*，避免与本 fork 自己的同名 tag 互相顶掉；
+#   3) 冲突文件数异常放大时直接中止并提示换策略，避免盲目合并把仓库搅烂。
+# 与 DiPlay 的差异：它与上游「历史无关」，整树替换更稳；本 fork 是真正的 GitHub fork、历史相关，
+#   合并通常干净，因此保留 merge 策略，但上述三条保护全部沿用。
+
 on:
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "sync = 合并上游并推送触发构建；report = 只报告上游改动，不改仓库"
+        type: choice
+        options:
+          - sync
+          - report
+        default: sync
+
+concurrency:
+  # 防止定时同步与手动同步叠跑（两个 job 同时 merge 会互相踩）
+  group: sync-upstream-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write   # 需要写权限把上游合并推回 fork
@@ -34,16 +53,129 @@ jobs:
         run: |
           UP="https://github.com/songloft-org/songloft-player.git"
           git remote add upstream "$UP" 2>/dev/null || git remote set-url upstream "$UP"
-          git fetch upstream --tags
+          # 分支走默认 refspec 落到 refs/remotes/upstream/*；
+          # tag 必须拉进独立命名空间：本 fork 自己也带同名 tag（指向自家历史），
+          # 直接 `git fetch upstream --tags` 会因 "would clobber existing tag" 被拒，甚至让 fetch 失败。
+          git fetch upstream
+          git fetch upstream "+refs/tags/*:refs/tags/upstream/*"
 
-      - name: Merge upstream/main (冲突统一取上游，随后重打补丁)
+      # 参照 DiPlay：合并前先看清上游改了什么，以及与「我方补丁面」是否重叠。
+      # 我方补丁面 = 会被 CI 重写/注入的文件，上游一旦动过就需人工确认我方改动是否仍成立。
+      - name: Preflight: 上游改了什么（合并前报告）
+        env:
+          MODE: ${{ inputs.mode || 'sync' }}
+          OUR_FILES: |
+            android/app/src/main/kotlin/com/songloft/songloft_flutter/Leapmotor24Wheel.kt
+            android/app/src/main/kotlin/com/songloft/songloft_flutter/LeapmotorInitProvider.kt
+            android/app/src/main/kotlin/com/songloft/songloft_flutter/Leapmotor24ConfigReceiver.kt
+            android/app/src/main/AndroidManifest.xml
+            pubspec.yaml
+            .github/workflows/build-apk.yml
+            .github/workflows/sync-upstream.yml
+            .github/workflows/build-and-release.yml
         run: |
-          git merge upstream/main -X theirs --no-edit || {
-            echo "::error::合并上游出现无法自动解决的冲突，需人工处理（可到 Actions 查看具体冲突文件）。"
+          set +e
+          MB="$(git merge-base HEAD upstream/main)"
+          echo "=== 运行模式: $MODE ==="
+          echo "=== 与上游的分叉点: $MB ==="
+          echo "=== 上游新提交数: $(git rev-list --count "$MB"..upstream/main) ==="
+          echo "=== 上游提交（最新 25 条）==="
+          git log --oneline --max-count=25 "$MB"..upstream/main
+          echo "=== 上游改动文件数: $(git diff --name-only "$MB" upstream/main | wc -l | tr -d ' ') ==="
+
+          echo "=== 我方补丁面 vs 上游改动（命中项需重点关注）==="
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            if [ -n "$(git diff --name-only "$MB" upstream/main -- "$f")" ]; then
+              echo "  [上游已改动] $f   <-- 合并后需确认我方改动/补丁是否仍成立"
+            else
+              echo "  [上游未动]   $f"
+            fi
+          done <<< "$OUR_FILES"
+
+          echo "=== 上游新增文件（前 20 个）==="
+          git diff --name-status "$MB" upstream/main | awk '$1=="A"{print "  "$2}' | head -20
+          echo "=== Preflight 结束（本步骤只读，不改仓库）==="
+
+      - name: Merge upstream/main (冲突取上游；我方有意删除的上游文件保持删除)
+        if: inputs.mode != 'report'
+        env:
+          DROPPED_PATHS: |
+            .github/workflows/build-and-release.yml
+        run: |
+          set +e
+          if git merge upstream/main -X theirs --no-edit; then
+            echo "无冲突，合并完成。"
+          else
+            echo "::warning::自动合并出现冲突，按既定策略尝试自动解决。"
+            git diff --name-only --diff-filter=U > /tmp/upstream_conflicts.txt
+            n=$(wc -l < /tmp/upstream_conflicts.txt)
+            echo "--- 冲突清单（共 $n 个）---"
+            cat /tmp/upstream_conflicts.txt
+            echo "-------------------------"
+
+            # 保护：冲突数异常放大，说明上游可能大规模重构、或两边历史已不相关
+            # （DiPlay 的经验：历史无关时合并会让每个未改动文件都变成冲突）。
+            # 此时盲目合并只会把仓库搅烂，直接中止并提示改用「整树替换 + 重打补丁」策略。
+            if [ "$n" -gt 50 ]; then
+              echo "::error::冲突文件多达 $n 个，疑似上游大规模重构或历史已不相关。"
+              echo "::error::请人工评估是否改用「整树替换 + 重打补丁」策略（参考 DiPlay-Leapmotor/scripts/sync-upstream.sh）。"
+              git status --porcelain | head -60
+              git merge --abort || true
+              exit 1
+            fi
+
+            while IFS= read -r f; do
+              [ -n "$f" ] || continue
+              drop=0
+              while IFS= read -r d; do
+                [ -n "$d" ] || continue
+                if [ "$f" = "$d" ]; then drop=1; break; fi
+              done <<< "$DROPPED_PATHS"
+              if [ "$drop" = "1" ]; then
+                echo "丢弃上游版本、保持我方删除：$f"
+                git rm -f --quiet -- "$f"
+              fi
+            done < /tmp/upstream_conflicts.txt
+
+            still=$(git diff --name-only --diff-filter=U)
+            if [ -n "$still" ]; then
+              echo "::error::以下文件仍有无法自动解决的冲突，需人工处理："
+              echo "$still"
+              echo "（若确认某个文件也应废弃，把它加进本步骤的 DROPPED_PATHS 清单即可自动处置）"
+              git status --porcelain | head -50
+              git merge --abort || true
+              exit 1
+            fi
+            git commit --no-edit || echo "::warning::合并提交未产生变更"
+            echo "冲突已按策略解决并完成合并提交。"
+          fi
+
+          # 兜底：无论上面是否经历冲突，确保 DROPPED_PATHS 里的文件不会随上游"复活"
+          # （含上游干净新增、改名后重建等不触发冲突的情况）
+          while IFS= read -r d; do
+            [ -n "$d" ] || continue
+            if [ -e "$d" ]; then
+              echo "::notice::清除随上游回来的文件：$d"
+              git rm -f --quiet -- "$d"
+            fi
+          done <<< "$DROPPED_PATHS"
+
+          # 自检：我方的构建工作流必须还在，否则不推送以免破坏仓库
+          if [ ! -f .github/workflows/build-apk.yml ]; then
+            echo "::error::合并后 .github/workflows/build-apk.yml 丢失，终止推送。"
             exit 1
-          }
+          fi
+          # 自检：构建依赖的上游结构仍存在，否则 build-apk.yml 会在构建期才失败
+          if [ ! -f android/app/src/main/AndroidManifest.xml ]; then
+            echo "::error::合并后 android/app/src/main/AndroidManifest.xml 丢失，方控注入将失败，终止推送。"
+            exit 1
+          fi
+          echo "=== 当前 .github/workflows 目录 ==="
+          ls -1 .github/workflows/
 
       - name: Re-apply Leapmotor 2024+ 方控 patch
+        if: inputs.mode != 'report'
         run: |
           DST="android/app/src/main/kotlin/com/songloft/songloft_flutter"
           if [ -d "$DST" ]; then
@@ -58,6 +190,7 @@ jobs:
           fi
 
       - name: Commit & push if changed (否则跳过，不触发构建)
+        if: inputs.mode != 'report'
         run: |
           git add -A
           if git diff --cached --quiet; then
@@ -67,3 +200,14 @@ jobs:
           git commit -m "chore: sync upstream songloft-player + reapply Leapmotor 方控 patch"
           git push origin HEAD:${{ github.ref_name }}
           echo "已推送合并，build-apk.yml 将自动触发并出包。"
+
+      # 无论成败都跑：清掉可能残留的半成品合并状态，避免脏 checkout 影响下一次运行
+      - name: 安全兜底：回滚未完成的合并状态
+        if: always()
+        run: |
+          if [ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ]; then
+            echo "::warning::检测到未完成的合并状态，执行 git merge --abort 还原工作区。"
+            git merge --abort || true
+          else
+            echo "无残留合并状态。"
+          fi
