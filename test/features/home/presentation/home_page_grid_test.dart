@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:songloft_flutter/features/home/domain/home_grid_config.dart';
+import 'package:songloft_flutter/features/home/presentation/providers/home_favorites_visibility_provider.dart';
 import 'package:songloft_flutter/features/home/presentation/home_page.dart';
 import 'package:songloft_flutter/features/home/presentation/providers/home_grid_config_provider.dart';
 import 'package:songloft_flutter/features/jsplugin/data/jsplugin_api.dart';
@@ -44,6 +45,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          homeFavoritesScopeProvider.overrideWithValue('home-page-test'),
           playlistListProvider(
             const PlaylistListQuery(type: 'normal'),
           ).overrideWith(
@@ -164,6 +166,42 @@ void main() {
     // 长宽比被夹回改造前的字面值 ⇒ 默认路径零视觉 diff
     expect(firstDelegate(tester).childAspectRatio, kHomeGridMaxAspectRatio);
     expect(firstItemCount(tester), 8);
+  });
+
+  testWidgets('隐藏内置收藏只移除首页卡片，普通同名歌单保留且可以恢复', (tester) async {
+    useWideViewport(tester);
+    await pumpHome(tester, normalCount: 4, radioCount: 3);
+    final context = tester.element(find.byType(HomePage));
+    final container = ProviderScope.containerOf(context);
+    final beforeNormal =
+        container
+            .read(playlistListProvider(const PlaylistListQuery(type: 'normal')))
+            .value!
+            .items;
+    final notifier = container.read(homeFavoritesVisibilityProvider.notifier);
+    await notifier.setShowFavorites(false);
+    await notifier.setShowRadioFavorites(false);
+    await tester.pump();
+    expect(firstItemCount(tester), 3);
+    expect(find.text('normal 0'), findsNothing);
+    expect(find.text('normal 1'), findsOneWidget);
+    expect(find.text('radio 1'), findsNothing);
+    expect(find.text('我的电台'), findsOneWidget);
+    expect(
+      container
+          .read(playlistListProvider(const PlaylistListQuery(type: 'normal')))
+          .value!
+          .items,
+      same(beforeNormal),
+    );
+    expect(beforeNormal.first.labels, ['built_in']);
+    await notifier.setShowFavorites(true);
+    await notifier.setShowRadioFavorites(true);
+    await tester.pump();
+    expect(firstItemCount(tester), 4);
+    expect(find.text('normal 0'), findsOneWidget);
+    expect(find.text('radio 1'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('配置 5 列 × 3 行时网格用 5 列并截断到 15 张', (tester) async {
@@ -337,6 +375,10 @@ class _FakePlaylistsNotifier extends PaginatedPlaylistsNotifier {
           id: i + 1,
           name: '$_type $i',
           type: _type,
+          labels:
+              (_type == 'normal' && i == 0) || (_type == 'radio' && i == 1)
+                  ? ['built_in']
+                  : [],
           songCount: i,
           createdAt: now,
           updatedAt: now,

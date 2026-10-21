@@ -4753,6 +4753,20 @@ class AppLocalizationsZh extends AppLocalizations {
   String get homeLayoutList => '纵向列表';
 
   @override
+  String get settingsHomeShowFavorites => '在首页显示收藏';
+
+  @override
+  String get settingsHomeShowFavoritesDesc =>
+      '仅控制首页卡片，曲库入口、歌曲和收藏功能照常可用。按服务器和账号保存在本机。';
+
+  @override
+  String get settingsHomeShowRadioFavorites => '在首页显示电台收藏';
+
+  @override
+  String get settingsHomeShowRadioFavoritesDesc =>
+      '仅控制电台区块中的首页卡片，需开启「显示电台区块」。按服务器和账号保存在本机。';
+
+  @override
   String get settingsHomeShowRadios => '显示电台区块';
 
   @override

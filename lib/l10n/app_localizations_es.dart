@@ -5047,6 +5047,21 @@ class AppLocalizationsEs extends AppLocalizations {
   String get homeLayoutList => 'Lista vertical';
 
   @override
+  String get settingsHomeShowFavorites => 'Mostrar Favoritos en inicio';
+
+  @override
+  String get settingsHomeShowFavoritesDesc =>
+      'Solo controla la tarjeta de inicio. La biblioteca, las canciones y los favoritos siguen disponibles. Se guarda en este dispositivo para este servidor y cuenta.';
+
+  @override
+  String get settingsHomeShowRadioFavorites =>
+      'Mostrar Radios favoritas en inicio';
+
+  @override
+  String get settingsHomeShowRadioFavoritesDesc =>
+      'Solo controla la tarjeta de inicio cuando se muestra la sección de radios. Se guarda en este dispositivo para este servidor y cuenta.';
+
+  @override
   String get settingsHomeShowRadios => 'Mostrar sección de radios';
 
   @override

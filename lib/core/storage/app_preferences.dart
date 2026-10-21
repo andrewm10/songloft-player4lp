@@ -230,6 +230,12 @@ class AppPreferences {
 
   bool getHomeShowRadios() => _prefs.getBool(_homeShowRadiosKey) ?? true;
 
+  String? getHomeFavoritesVisibility(String scope) =>
+      _prefs.getString('home_favorites_visibility:$scope');
+
+  Future<bool> setHomeFavoritesVisibility(String scope, String value) =>
+      _prefs.setString('home_favorites_visibility:$scope', value);
+
   Future<bool> setHomeShowRadios(bool visible) =>
       _prefs.setBool(_homeShowRadiosKey, visible);
 
