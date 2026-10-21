@@ -33,6 +33,14 @@ on:
       - '.gitignore'
   workflow_dispatch:
 
+  # 供 sync-upstream.yml 在推送完成后调用。
+  # 为什么需要它：sync-upstream 用 GITHUB_TOKEN 推送，而 GitHub 明确规定「由 GITHUB_TOKEN 产生的
+  # push 事件不会触发其他工作流」（防止递归运行），所以 on: push 收不到同步产生的推送。
+  # 官方文档同时指出 workflow_dispatch 与 repository_dispatch 是两个例外——
+  # 即使用 GITHUB_TOKEN 创建，也始终会触发工作流运行。故同步成功后由脚本显式派发本事件。
+  repository_dispatch:
+    types: [sync-from-upstream]
+
 permissions:
   contents: write   # 发布 Release（gh release create 需要写权限）
 
