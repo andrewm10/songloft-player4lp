@@ -1,4 +1,4 @@
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
@@ -148,6 +148,27 @@ class EmbeddedBackendService {
     } on MissingPluginException {
       return false;
     }
+  }
+
+  /// 本地模式的管理员密码。移动端与桌面端都监听 0.0.0.0（DLNA 投屏需要局域网可达），
+  /// 绝不能用默认 admin/admin，否则同网段任何人都能登入并经 /jsplugins 拿到代码执行。
+  /// 两端都把每安装一次的随机密码写入 dataDir 的 admin_password 文件（移动端由 Go 后端
+  /// 写、桌面端由 DesktopBackendService 写），这里从同一路径读取用于自动登录。
+  /// 文件缺失/读取失败时回退 'admin'，保证异常下仍可登录。
+  static Future<String> getAdminPassword() async {
+    if (_isMobile || _isDesktop) {
+      try {
+        final dir = await getApplicationSupportDirectory();
+        final f = File('${dir.path}/admin_password');
+        if (await f.exists()) {
+          final pw = (await f.readAsString()).trim();
+          if (pw.isNotEmpty) return pw;
+        }
+      } catch (_) {
+        // 回退到默认值
+      }
+    }
+    return 'admin';
   }
 
   /// 获取当前监听端口，未运行时返回 0

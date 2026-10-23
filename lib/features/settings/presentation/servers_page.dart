@@ -692,9 +692,10 @@ class _LocalModeCardState extends ConsumerState<_LocalModeCard> {
     if (restored && !await storage.isAccessTokenExpired()) {
       ref.read(authStateProvider.notifier).setAuthenticated();
     } else {
+      final password = await EmbeddedBackendService.getAdminPassword();
       await ref
           .read(authStateProvider.notifier)
-          .login(username: 'admin', password: 'admin');
+          .login(username: 'admin', password: password);
     }
 
     if (mounted) {

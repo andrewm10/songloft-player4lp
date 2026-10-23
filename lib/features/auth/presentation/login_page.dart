@@ -593,9 +593,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         dio.close();
       }
 
+      final password = await EmbeddedBackendService.getAdminPassword();
       await ref
           .read(authStateProvider.notifier)
-          .login(username: 'admin', password: 'admin');
+          .login(username: 'admin', password: password);
     } catch (e) {
       if (mounted) {
         ResponsiveSnackBar.showError(
@@ -707,9 +708,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             connectTimeout: const Duration(seconds: 5),
           ),
         );
+        final password = await EmbeddedBackendService.getAdminPassword();
         final resp = await loginDio.post(
           '${AppConfig.apiPrefix}/auth/login',
-          data: {'username': 'admin', 'password': 'admin'},
+          data: {'username': 'admin', 'password': password},
         );
         if (resp.statusCode == 200 && resp.data != null) {
           await storage.saveTokens(

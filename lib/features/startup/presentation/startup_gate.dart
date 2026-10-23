@@ -178,9 +178,10 @@ class _StartupGateState extends ConsumerState<StartupGate>
           connectTimeout: const Duration(seconds: 5),
         ),
       );
+      final password = await EmbeddedBackendService.getAdminPassword();
       final resp = await dio.post(
         '${AppConfig.apiPrefix}/auth/login',
-        data: {'username': 'admin', 'password': 'admin'},
+        data: {'username': 'admin', 'password': password},
       );
       if (resp.statusCode == 200 && resp.data != null) {
         final storage = SecureStorageService();
