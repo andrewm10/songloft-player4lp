@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
@@ -55,6 +56,11 @@ class DesktopBackendService {
 
     final dbPath = '$dataDir${Platform.pathSeparator}songloft.db';
 
+    // 后端监听 0.0.0.0（桌面端 DLNA 投屏需要局域网设备拉流），局域网可达，
+    // 绝不能用默认 admin/admin：同网段任何人都能登入并经 /jsplugins 拿到代码执行。
+    // 为每个安装生成一次随机密码并落盘复用，getAdminPassword() 从同一文件读取后登录。
+    final password = await _ensureAdminPassword(dataDir);
+
     final process = await Process.start(binary, [
       '-port', '${port > 0 ? port : 0}',
       '-db', dbPath,
@@ -62,7 +68,7 @@ class DesktopBackendService {
       // 否则后端会按子进程 CWD 解析相对路径导致扫描失败。
       if (musicDir.isNotEmpty) ...['-music', musicDir],
       '-username', 'admin',
-      '-password', 'admin',
+      '-password', password,
     ]);
     _process = process;
     _port = 0;
@@ -115,6 +121,32 @@ class DesktopBackendService {
 
     debugPrint('[DesktopBackend] 后端已启动, port=$_port, pid=${process.pid}');
     return _port;
+  }
+
+  /// 读取 dataDir 下的管理员密码文件，不存在则生成随机密码并落盘复用。
+  /// 与移动端共用 admin_password 文件名；getAdminPassword() 从同一路径读取。
+  static Future<String> _ensureAdminPassword(String dataDir) async {
+    final f = File('$dataDir${Platform.pathSeparator}admin_password');
+    try {
+      if (await f.exists()) {
+        final pw = (await f.readAsString()).trim();
+        if (pw.isNotEmpty) return pw;
+      }
+    } catch (_) {
+      // 落空则重新生成
+    }
+
+    final rnd = Random.secure();
+    final bytes = List<int>.generate(18, (_) => rnd.nextInt(256));
+    final pw = base64Url.encode(bytes).replaceAll('=', '');
+
+    try {
+      await f.writeAsString(pw);
+    } catch (e) {
+      // 无法落盘时仍返回本次随机密码，保证本次启动可登录（下次会再生成）
+      debugPrint('[DesktopBackend] 写入 admin_password 失败: $e');
+    }
+    return pw;
   }
 
   /// 停止后端子进程
