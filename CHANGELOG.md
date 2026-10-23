@@ -2,6 +2,20 @@
 
 此文件记录 Songloft Flutter 客户端的版本变更，仅提供中文版本。版本 tag 的 Release 发布成功后，由 CI 根据 Conventional Commits 分类追加记录并提交到 `main`；滚动 dev 记录见 [GitHub Releases](https://github.com/songloft-org/songloft-player/releases/tag/dev)。
 
+## [v2.13.6] - 2026-10-23
+### :sparkles: 新增功能
+- [`d7c2f4a`](https://github.com/songloft-org/songloft-player/commit/d7c2f4a643336a7ad93e25bc781dbd6ce4db8edb) - **home**: 支持首页收藏歌单显示设置 *(提交者 [@hanxi](https://github.com/hanxi))*
+
+### :bug: 问题修复
+- [`9345a6b`](https://github.com/songloft-org/songloft-player/commit/9345a6b0e92ab4188282dade1af11027dbbee377) - **local-mode**: 本地模式改用每安装随机管理员密码，替换 admin/admin *(提交者 [@hanxi](https://github.com/hanxi))*
+
+### :memo: 文档更新
+- [`1e30e05`](https://github.com/songloft-org/songloft-player/commit/1e30e059e4b39ba8b43d5c6d3b7cfedc20f4c7dd) - **changelog**: 更新 v2.13.5 变更记录 *(提交者 [@github-actions[bot]](https://github.com/apps/github-actions))*
+
+### :wrench: 维护工作
+- [`8fa1d6e`](https://github.com/songloft-org/songloft-player/commit/8fa1d6e5fc27fccc62a94e389337a6ea91b55ee7) - release version 2.13.6 *(提交者 [@hanxi](https://github.com/hanxi))*
+
+
 ## [v2.13.5] - 2026-10-20
 ### :bug: 问题修复
 - [`203e79b`](https://github.com/songloft-org/songloft-player/commit/203e79b5fd7ac02b8edb93af291bb6981e62974f) - **player**: 电台断流持续重连并保留当前台 *(提交者 [@hanxi](https://github.com/hanxi))*
@@ -95,3 +109,4 @@
 [v2.13.3]: https://github.com/songloft-org/songloft-player/compare/v2.13.2...v2.13.3
 [v2.13.4]: https://github.com/songloft-org/songloft-player/compare/v2.13.3...v2.13.4
 [v2.13.5]: https://github.com/songloft-org/songloft-player/compare/v2.13.4...v2.13.5
+[v2.13.6]: https://github.com/songloft-org/songloft-player/compare/v2.13.5...v2.13.6
