@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:songloft_flutter/core/theme/app_theme.dart';
+import 'package:songloft_flutter/core/theme/built_in_palette.dart';
 import 'package:songloft_flutter/core/utils/color_extraction.dart';
 import 'package:songloft_flutter/features/player/domain/lyric_parser.dart';
 import 'package:songloft_flutter/features/player/domain/player_state.dart';
@@ -137,6 +138,28 @@ void main() {
         defaults.background.first.computeLuminance(),
         dark ? lessThan(.1) : greaterThan(.7),
       );
+    });
+
+    test('active lyric keeps the accent hue ($dark)', () {
+      for (final palette in BuiltInPalette.values) {
+        final paletteTheme =
+            dark
+                ? AppTheme.darkTheme(seedColor: palette.seedColor)
+                : AppTheme.lightTheme(seedColor: palette.seedColor);
+        final primary = HSLColor.fromColor(paletteTheme.colorScheme.primary);
+        final active = HSLColor.fromColor(
+          PlayerBackdropColors.fromTheme(paletteTheme).active,
+        );
+        var hueDelta = (primary.hue - active.hue).abs();
+        if (hueDelta > 180) hueDelta = 360 - hueDelta;
+        // Only HSL lightness may change; dark mode keeps the primary outright.
+        expect(hueDelta, lessThan(1.5), reason: palette.name);
+        expect(
+          (active.saturation - primary.saturation).abs(),
+          lessThan(.02),
+          reason: palette.name,
+        );
+      }
     });
 
     testWidgets(
