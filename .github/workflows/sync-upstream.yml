@@ -1,7 +1,9 @@
 name: Sync upstream & build
 
-# 自动跟随上游：每天 UTC 03:00 检查 songloft-org/songloft-player 是否有更新；
-# 有更新则合并、重打方控补丁、推回本 fork，推送会触发 build-apk.yml 自动出包。
+# 自动跟随上游：每天北京时间 07:00（= UTC 23:00，中国无夏令时、UTC+8 固定）检查
+# songloft-org/songloft-player 是否有更新；
+# 仅当上游 pubspec.yaml 的 version 相比本地 HEAD 有更新时，才合并、重打方控补丁、
+# 推回本 fork 并派发构建；版本号没动则直接跳过，不出 APK、不占构建配额。
 # 也可在 Actions 页手动 Run workflow 立即同步（可选 report 模式：只报告上游改了什么，不动仓库）。
 #
 # 合并策略参考了 DiPlay-Leapmotor 的 scripts/sync-upstream.sh，沿用其三条保护：
@@ -13,7 +15,8 @@ name: Sync upstream & build
 
 on:
   schedule:
-    - cron: "0 3 * * *"
+    # GitHub cron 用的是 UTC。UTC 23:00 = 北京时间次日 07:00（UTC+8 固定，无夏令时）。
+    - cron: "0 23 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -96,6 +99,38 @@ jobs:
           echo "=== 上游新增文件（前 20 个）==="
           git diff --name-status "$MB" upstream/main | awk '$1=="A"{print "  "$2}' | head -20
           echo "=== Preflight 结束（本步骤只读，不改仓库）==="
+
+      # 版本门禁（用户规则）：仅当上游 pubspec.yaml 的 version 相比本地 HEAD **有更新**时，
+      # 才允许继续合并/推送/派发构建；版本号没动就 exit 0 收工，不推分支、不出 APK。
+      #   比较对象是完整版本串（含 +build 号）：上游只 bump build 号同样算"有更新"——
+      #   versionCode 变了、产物确实不同，理应重建。
+      #   解析失败（上游改名/删除 pubspec.yaml、version 行格式变化）→ 报错退出而不是放行，
+      #   结构变化时盲目合并比不合并更危险。
+      # 注意：report 模式也会跑本步骤，版本没变时同样在此结束——Preflight 报告已经打印过了。
+      - name: "版本门禁：上游版本号有更新才继续"
+        run: |
+          extract_version() {
+            # $1 = git ref（HEAD / upstream/main），输出该 ref 下 pubspec.yaml 的 version 值
+            git show "$1:pubspec.yaml" 2>/dev/null \
+              | grep -m1 '^version:' \
+              | sed -e 's/^version:[[:space:]]*//' -e 's/[[:space:]]*$//' \
+                    -e 's/^["'\'']//' -e 's/["'\'']$//'
+          }
+          LOCAL_VERSION="$(extract_version HEAD)"
+          UPSTREAM_VERSION="$(extract_version upstream/main)"
+          echo "本地 HEAD 版本号 : ${LOCAL_VERSION:-<解析失败>}"
+          echo "上游 main 版本号  : ${UPSTREAM_VERSION:-<解析失败>}"
+          if [ -z "$LOCAL_VERSION" ] || [ -z "$UPSTREAM_VERSION" ]; then
+            echo "::error::无法解析版本号（本地='$LOCAL_VERSION'，上游='$UPSTREAM_VERSION'）。"
+            echo "::error::请确认上游未改名/删除 pubspec.yaml、version 行格式未变；排除后重新 Run workflow。"
+            exit 1
+          fi
+          if [ "$LOCAL_VERSION" = "$UPSTREAM_VERSION" ]; then
+            echo "=== 上游版本号未更新（$LOCAL_VERSION），跳过合并/推送/构建。 ==="
+            echo "（Preflight 报告里仍可查看上游是否有非版本类改动；确认需要跟随时可手动合并，或临时注释掉本步骤。）"
+            exit 0
+          fi
+          echo "=== 检测到版本更新：$LOCAL_VERSION -> $UPSTREAM_VERSION，继续同步并出包。 ==="
 
       - name: Merge upstream/main (冲突取上游；我方有意删除的上游文件保持删除)
         if: inputs.mode != 'report'
