@@ -79,21 +79,33 @@ class PlayerBackdropColors {
               tint(bottom, palette == null ? (dark ? .08 : .04) : .18),
             ];
     // Text updates immediately while AnimatedContainer can still show any prior
-    // cover. Include both cover extremes so changing songs remains readable.
-    final bounds = [
-      ...background,
-      tint(Colors.black, coverOpacity),
-      tint(Colors.white, coverOpacity),
-    ];
+    // cover. The current gradient needs the full 7:1, but the 500ms transition
+    // only needs to stay legible, so a both-extremes 7:1 bound would needlessly
+    // neutralize every accent hue.
+    final transition =
+        highContrast
+            ? background
+            : [
+              tint(Colors.black, coverOpacity),
+              tint(Colors.white, coverOpacity),
+            ];
     return PlayerBackdropColors(
       background: background,
-      // Keep an accent hue where possible, strengthening it toward onSurface.
-      active: _readable(scheme.primary, scheme.onSurface, bounds, 7),
+      active: _readable(
+        scheme.primary,
+        scheme.onSurface,
+        background,
+        7,
+        transition: transition,
+        transitionMinimum: 4.5,
+      ),
       secondary: _readable(
         Color.lerp(background.first, scheme.onSurface, .68)!,
         scheme.onSurface,
-        bounds,
+        background,
         highContrast ? 7 : 4.5,
+        transition: transition,
+        transitionMinimum: 4.5,
       ),
     );
   }
@@ -107,22 +119,36 @@ class PlayerBackdropColors {
     Color preferred,
     Color foreground,
     List<Color> backgrounds,
-    double minimum,
-  ) {
-    for (var step = 0; step <= 20; step++) {
+    double minimum, {
+    List<Color> transition = const [],
+    double transitionMinimum = 0,
+  }) {
+    bool acceptable(Color candidate) =>
+        backgrounds.every((bg) => _contrast(candidate, bg) >= minimum) &&
+        transition.every((bg) => _contrast(candidate, bg) >= transitionMinimum);
+
+    if (acceptable(preferred)) return preferred;
+    // Keep the accent hue: move only lightness toward black/white instead of
+    // mixing into the neutral onSurface, so the active lyric stays colored.
+    final base = HSLColor.fromColor(preferred);
+    final darken = foreground.computeLuminance() < .5;
+    for (var step = 1; step <= 20; step++) {
+      final lightness =
+          darken
+              ? base.lightness * (1 - step / 20)
+              : base.lightness + (1 - base.lightness) * step / 20;
+      final candidate = base.withLightness(lightness.clamp(0.0, 1.0)).toColor();
+      if (acceptable(candidate)) return candidate;
+    }
+    for (var step = 1; step <= 20; step++) {
       final candidate = Color.lerp(preferred, foreground, step / 20)!;
-      if (backgrounds.every((bg) => _contrast(candidate, bg) >= minimum)) {
-        return candidate;
-      }
+      if (acceptable(candidate)) return candidate;
     }
     // A stronger cover wash can exceed onSurface's contrast headroom.
-    final extreme =
-        foreground.computeLuminance() > .5 ? Colors.white : Colors.black;
+    final extreme = darken ? Colors.black : Colors.white;
     for (var step = 1; step <= 20; step++) {
       final candidate = Color.lerp(foreground, extreme, step / 20)!;
-      if (backgrounds.every((bg) => _contrast(candidate, bg) >= minimum)) {
-        return candidate;
-      }
+      if (acceptable(candidate)) return candidate;
     }
     return extreme;
   }

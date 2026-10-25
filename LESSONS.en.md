@@ -10,6 +10,14 @@ Include rule, scope, full owner/repo#number, failure/fix commit SHAs, actual val
 
 ## Entries
 
+### LYRIC-004: applying the static 7:1 floor to the song-change animation neutralizes the accent
+
+- Scope: Flutter mobile/desktop full player `PlayerBackdrop`, songloft-org/songloft#537; baseline `8fa1d6e` (v2.13.6).
+- Evidence: on 2026-10-24 the reported screenshot shows the active line and icons at `#415F91` (light primary), inactive lines near 50% onSurface and a dark top overlay, matching the pre-#523 implementation. Current `_readable` also holds the black/white cover tints that only appear during a song change to 7:1; the active line of every built-in palette therefore collapses to near-neutral gray (light blue/teal/forest/rose/amber/violet `#1F2631`/`#122C2C`/`#1F281A`/`#37232A`/`#352515`/`#2D2536`; dark `#E8E8ED`/`#E4E9E9`/`#E7E9E1`/`#F2E5E7`/`#F1E6DD`/`#ECE6ED`), losing the accent hue. A new hue regression fails on the old implementation in both modes (light saturation delta 0.15595 > 0.02; dark hue delta 20.47° > 1.5°).
+- Rule and fix: require 7:1 for the static background, but only 4.5:1 for the previous background that may still be visible during the animation. Adjust the foreground through HSL lightness alone instead of mixing toward neutral onSurface. With the default blue theme the light accent changes from `#1F2631` to `#2D4266`; dark mode keeps `#AAC7FF`.
+- Done right: contrast/transition regressions and the full related suite pass; the new hue test fails on the old implementation and passes on the new one. See the [#537 record](docs/en/issue-537.md) for full validation and Not run items. The screenshot is an old client, so it cannot establish that current versions still have the dark-gray background.
+- Seen 1× (2026-10-24). Status: lesson; commits and publication follow Git/CI.
+
 ### ANDROID-001: JNI parameter types are native contracts; debug startup cannot replace release acceptance
 
 - Scope: Android standard/Bundle R8 shrinking, SharedPreferences startup and hot-update compatibility hashes; baseline `203e79b5fd7ac02b8edb93af291bb6981e62974f`, official package source `d89934eea468c22f635d28e5bfd0b5fe81c98147`.
