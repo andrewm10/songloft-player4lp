@@ -1,6 +1,6 @@
 name: Sync upstream & build
 
-# 自动跟随上游：每天北京时间 07:00（= UTC 23:00，中国无夏令时、UTC+8 固定）检查
+# 自动跟随上游：每天北京时间 04:00（= UTC 20:00，中国无夏令时、UTC+8 固定）检查
 # songloft-org/songloft-player 是否有更新；
 # 仅当上游 pubspec.yaml 的 version（**忽略 +build 号**）相比本地 HEAD 有变化时，才合并、重打方控补丁、
 # 推回本 fork 并派发构建；上游只 bump build 号（如 2.13.6+1 -> 2.13.6+2）视为无实质更新，
@@ -17,8 +17,8 @@ name: Sync upstream & build
 
 on:
   schedule:
-    # GitHub cron 用的是 UTC。UTC 23:00 = 北京时间次日 07:00（UTC+8 固定，无夏令时）。
-    - cron: "0 23 * * *"
+    # GitHub cron 用的是 UTC。UTC 20:00 = 北京时间次日 04:00（UTC+8 固定，无夏令时）。
+    - cron: "0 20 * * *"
   workflow_dispatch:
     inputs:
       mode:
