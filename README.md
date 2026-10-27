@@ -44,9 +44,28 @@ songloft-leapmotor-patch/
 
 ---
 
-## 2. 方式 A：GitHub Actions 自动出包（推荐，无需本机工具链）
+Release 正文展示版本变更，并保留本节的安装说明链接；历史记录保存在中文 [CHANGELOG.md](CHANGELOG.md)，在版本发布成功后自动更新。各平台安装说明见下表。
 
-### 2.1 Fork 并放入补丁
+本仓库发布的是需要连接 [Songloft 服务器](https://github.com/songloft-org/songloft)的标准 Flutter 客户端，安装后填写服务器地址并登录。需要内嵌后端的本地模式，请从[主工程 Releases](https://github.com/songloft-org/songloft/releases) 下载 `songloft-bundled-*` 文件。
+
+在 Release 页的 **Assets** 中选择适合设备的文件；部分安装格式可能未提供，以实际附件为准。
+
+| 平台 | 下载链接 | 说明 |
+|------|----------|------|
+| 🌐 **Web (standalone)** | [songloft-web-standalone.tar.gz](https://github.com/songloft-org/songloft-player/releases/latest/download/songloft-web-standalone.tar.gz) | 解压到静态服务器，打开站点后配置后端 API 地址；跨源部署需要后端允许该站点访问 |
+| 🌐 **Web (embedded)** | [songloft-web-embedded.tar.gz](https://github.com/songloft-org/songloft-player/releases/latest/download/songloft-web-embedded.tar.gz) | 用于同源静态服务或后端嵌入构建，隐藏 API 地址输入；解压不会自动替换已运行的服务器前端 |
+| 🐧 **Linux** | [songloft-linux-x64.tar.gz](https://github.com/songloft-org/songloft-player/releases/latest/download/songloft-linux-x64.tar.gz) | 解压后运行应用，保留完整目录 |
+| | [songloft-linux-x64.deb](https://github.com/songloft-org/songloft-player/releases/latest/download/songloft-linux-x64.deb) | Debian/Ubuntu x64，使用系统包管理器安装 |
+| | [songloft-linux-x64.rpm](https://github.com/songloft-org/songloft-player/releases/latest/download/songloft-linux-x64.rpm) | Fedora/RHEL/CentOS x64，使用系统包管理器安装 |
+| | [songloft-linux-x64.AppImage](https://github.com/songloft-org/songloft-player/releases/latest/download/songloft-linux-x64.AppImage) | 添加执行权限后运行 |
+| 🪟 **Windows** | [songloft-windows-x64.zip](https://github.com/songloft-org/songloft-player/releases/latest/download/songloft-windows-x64.zip) | x64 便携版，解压后运行应用，保留同目录全部文件 |
+| | [songloft-windows-x64.msix](https://github.com/songloft-org/songloft-player/releases/latest/download/songloft-windows-x64.msix) | x64 安装版，按系统提示安装 |
+| 🍎 **macOS** | [songloft-macos.dmg](https://github.com/songloft-org/songloft-player/releases/latest/download/songloft-macos.dmg) | Universal (Intel/Apple Silicon)，打开 DMG 后将应用拖入「应用程序」 |
+| | [songloft-macos.zip](https://github.com/songloft-org/songloft-player/releases/latest/download/songloft-macos.zip) | Universal (Intel/Apple Silicon)，解压 ZIP 后将应用移入「应用程序」 |
+| 🤖 **Android** | [songloft-arm64-v8a.apk](https://github.com/songloft-org/songloft-player/releases/latest/download/songloft-arm64-v8a.apk) | ARM64 设备（推荐），下载并打开 APK，按提示允许安装 |
+| | [songloft-armeabi-v7a.apk](https://github.com/songloft-org/songloft-player/releases/latest/download/songloft-armeabi-v7a.apk) | 32 位 ARM 设备，下载并打开 APK，按提示允许安装 |
+| | [songloft-x86_64.apk](https://github.com/songloft-org/songloft-player/releases/latest/download/songloft-x86_64.apk) | Intel 设备或模拟器，下载并打开 APK，按提示允许安装 |
+| 📱 **iOS** | [songloft-ios-nosign.ipa](https://github.com/songloft-org/songloft-player/releases/latest/download/songloft-ios-nosign.ipa) | 未签名设备包，需使用自己的开发者证书和适用于目标设备的 provisioning profile 重签后安装 |
 
 1. 在 GitHub 上 Fork **`songloft-org/songloft-player`** 到你自己的账号。
    （确认 fork 后根目录能看到 `pubspec.yaml` + `android/` + `lib/`，才算 Fork 对了。）
@@ -54,9 +73,9 @@ songloft-leapmotor-patch/
    （与 `pubspec.yaml`、`android/` 同级）。
 3. 提交并推送到 fork 的 `main`（或 `master` / `build-apk`）分支。
 
-> 工作流会自动在仓库内定位 `pubspec.yaml`；若你仍放错了仓库（找不到 pubspec.yaml），
-> 它会直接报错并提示改用 `songloft-player`。推送后 GitHub 自动触发
-> `Build Songloft APK (Leapmotor 方控)` 工作流。
+`patch-*.zip`、`manifest-*.json` 和 `version.json` 供客户端检查更新使用，无需手动安装。
+
+## 功能特性
 
 ### 2.2 取 APK（Releases 页，推荐）
 
