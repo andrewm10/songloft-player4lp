@@ -100,6 +100,114 @@ abstract class AppLocalizations {
     Locale('zh'),
   ];
 
+  /// No description provided for @personalTokenTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'永久访问 Token'**
+  String get personalTokenTitle;
+
+  /// No description provided for @personalTokenHelp.
+  ///
+  /// In zh, this message translates to:
+  /// **'永久有效，直到手动撤销。拥有管理员业务 API 权限，不能管理 Token。'**
+  String get personalTokenHelp;
+
+  /// No description provided for @personalTokenCreate.
+  ///
+  /// In zh, this message translates to:
+  /// **'创建 Token'**
+  String get personalTokenCreate;
+
+  /// No description provided for @personalTokenName.
+  ///
+  /// In zh, this message translates to:
+  /// **'名称'**
+  String get personalTokenName;
+
+  /// No description provided for @personalTokenPermanent.
+  ///
+  /// In zh, this message translates to:
+  /// **'永久有效'**
+  String get personalTokenPermanent;
+
+  /// No description provided for @personalTokenOnce.
+  ///
+  /// In zh, this message translates to:
+  /// **'完整 Token 仅显示这一次。请复制保存，关闭后无法再次查看。'**
+  String get personalTokenOnce;
+
+  /// No description provided for @personalTokenCopy.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制 Token'**
+  String get personalTokenCopy;
+
+  /// No description provided for @personalTokenCopyHeader.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制 Authorization 请求头'**
+  String get personalTokenCopyHeader;
+
+  /// No description provided for @personalTokenCopied.
+  ///
+  /// In zh, this message translates to:
+  /// **'已复制'**
+  String get personalTokenCopied;
+
+  /// No description provided for @personalTokenCopyFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制失败，请手动选择并复制 Token。'**
+  String get personalTokenCopyFailed;
+
+  /// No description provided for @personalTokenFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'操作失败，请确认服务器支持永久 Token 后重试。'**
+  String get personalTokenFailed;
+
+  /// No description provided for @personalTokenDone.
+  ///
+  /// In zh, this message translates to:
+  /// **'完成'**
+  String get personalTokenDone;
+
+  /// No description provided for @personalTokenCreated.
+  ///
+  /// In zh, this message translates to:
+  /// **'创建于'**
+  String get personalTokenCreated;
+
+  /// No description provided for @personalTokenLastUsed.
+  ///
+  /// In zh, this message translates to:
+  /// **'最近使用'**
+  String get personalTokenLastUsed;
+
+  /// No description provided for @personalTokenNeverUsed.
+  ///
+  /// In zh, this message translates to:
+  /// **'尚未使用'**
+  String get personalTokenNeverUsed;
+
+  /// No description provided for @personalTokenRevokeHelp.
+  ///
+  /// In zh, this message translates to:
+  /// **'撤销后此设备的后续请求将立即被拒绝，其他设备不受影响。'**
+  String get personalTokenRevokeHelp;
+
+  /// No description provided for @personalTokenPrevious.
+  ///
+  /// In zh, this message translates to:
+  /// **'上一页'**
+  String get personalTokenPrevious;
+
+  /// No description provided for @personalTokenNext.
+  ///
+  /// In zh, this message translates to:
+  /// **'下一页'**
+  String get personalTokenNext;
+
   /// No description provided for @githubDiscoveryTokenTitle.
   ///
   /// In zh, this message translates to:

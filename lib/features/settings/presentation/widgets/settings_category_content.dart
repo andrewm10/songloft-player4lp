@@ -40,6 +40,7 @@ import 'scan_manager.dart';
 import 'section_card.dart';
 import 'settings_master_detail.dart';
 import 'theme_selector.dart';
+import 'personal_token_manager.dart';
 import 'built_in_palette_selector.dart';
 import 'appearance_accessibility_settings.dart';
 import 'theme_pack_manager.dart';
@@ -787,6 +788,8 @@ class _SettingsCategoryContentState
         title: l10n.settingsCategoryAccountTitle,
         icon: Icons.account_circle_outlined,
         children: [
+          PersonalTokenManager(key: ValueKey(ref.watch(baseUrlProvider))),
+          const Divider(height: 1),
           if (!AppConfig.isEmbedded) ...[
             ListTile(
               leading: Icon(

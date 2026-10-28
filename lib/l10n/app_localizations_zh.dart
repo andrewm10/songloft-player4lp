@@ -9,6 +9,60 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get personalTokenTitle => '永久访问 Token';
+
+  @override
+  String get personalTokenHelp => '永久有效，直到手动撤销。拥有管理员业务 API 权限，不能管理 Token。';
+
+  @override
+  String get personalTokenCreate => '创建 Token';
+
+  @override
+  String get personalTokenName => '名称';
+
+  @override
+  String get personalTokenPermanent => '永久有效';
+
+  @override
+  String get personalTokenOnce => '完整 Token 仅显示这一次。请复制保存，关闭后无法再次查看。';
+
+  @override
+  String get personalTokenCopy => '复制 Token';
+
+  @override
+  String get personalTokenCopyHeader => '复制 Authorization 请求头';
+
+  @override
+  String get personalTokenCopied => '已复制';
+
+  @override
+  String get personalTokenCopyFailed => '复制失败，请手动选择并复制 Token。';
+
+  @override
+  String get personalTokenFailed => '操作失败，请确认服务器支持永久 Token 后重试。';
+
+  @override
+  String get personalTokenDone => '完成';
+
+  @override
+  String get personalTokenCreated => '创建于';
+
+  @override
+  String get personalTokenLastUsed => '最近使用';
+
+  @override
+  String get personalTokenNeverUsed => '尚未使用';
+
+  @override
+  String get personalTokenRevokeHelp => '撤销后此设备的后续请求将立即被拒绝，其他设备不受影响。';
+
+  @override
+  String get personalTokenPrevious => '上一页';
+
+  @override
+  String get personalTokenNext => '下一页';
+
+  @override
   String get githubDiscoveryTokenTitle => 'GitHub Token';
 
   @override
