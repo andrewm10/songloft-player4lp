@@ -1,11 +1,12 @@
 name: Sync upstream & build
 
-# 自动跟随上游：每天北京时间 04:00（= UTC 20:00，中国无夏令时、UTC+8 固定）检查
+# 自动跟随上游：每天北京时间 07:00（= UTC 23:00，中国无夏令时、UTC+8 固定）检查
 # songloft-org/songloft-player 是否有更新；
 # 仅当上游 pubspec.yaml 的 version（**忽略 +build 号**）相比本地 HEAD 有变化时，才合并、重打方控补丁、
 # 推回本 fork 并派发构建；上游只 bump build 号（如 2.13.6+1 -> 2.13.6+2）视为无实质更新，
 # 不合并、不推送、不出 APK——不为 build 号空转浪费构建配额。
 # 修订号/次版本号/主版本号任何变化（如 2.13.6 -> 2.13.7、2.13.x -> 2.14.0）都会照常出包。
+# 门禁通过 step 输出 skip 拦住后续步骤（exit 0 只能结束当前步骤、拦不住后面的步骤，详见门禁处注释）。
 # 也可在 Actions 页手动 Run workflow 立即同步（可选 report 模式：只报告上游改了什么，不动仓库）。
 #
 # 合并策略参考了 DiPlay-Leapmotor 的 scripts/sync-upstream.sh，沿用其三条保护：
@@ -17,8 +18,8 @@ name: Sync upstream & build
 
 on:
   schedule:
-    # GitHub cron 用的是 UTC。UTC 20:00 = 北京时间次日 04:00（UTC+8 固定，无夏令时）。
-    - cron: "0 20 * * *"
+    # GitHub cron 用的是 UTC。UTC 23:00 = 北京时间次日 07:00（UTC+8 固定，无夏令时）。
+    - cron: "0 23 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -107,9 +108,17 @@ jobs:
       #   上游 2.13.6+1 -> 2.13.7+1（修订号变了）-> 照常走 合并+重打补丁+推送+派发构建。
       #   解析失败（上游改名/删除 pubspec.yaml、version 行格式变化、版本主体非数字）
       #   -> 报错退出而不是放行，结构变化时盲目合并比不合并更危险。
-      # 注意：report 模式也会跑本步骤，版本主体没变时同样在此结束——Preflight 报告已经打印过了。
+      #
+      # ⚠️ 实现机制（2026-10-28 修的重大 bug）：本步骤**不能**靠 exit 0 跳过后续步骤——
+      #    exit 0 只表示"本步骤成功"，GitHub Actions 会继续跑后面的 Merge/推送/派发，
+      #    结果版本号没变也照样合并+推送+出包（用户截图实锤：门禁打印了跳过，构建仍触发）。
+      #    正确做法：把跳过意图写进 step outputs（skip=true），后续步骤用 if 条件拦住。
+      # 注意：report 模式也会跑本步骤，版本主体没变时后续步骤同样被拦——Preflight 报告已经打印过了。
       - name: "版本门禁：上游版本号变化才继续（忽略 build 号）"
+        id: version_gate
         run: |
+          # 本地裸跑（回归测试）时没有 GITHUB_OUTPUT 环境变量，指到 /dev/null 保证脚本不炸
+          GITHUB_OUTPUT="${GITHUB_OUTPUT:-/dev/null}"
           extract_version() {
             # $1 = git ref（HEAD / upstream/main），输出该 ref 下 pubspec.yaml 的 version 值
             git show "$1:pubspec.yaml" 2>/dev/null \
@@ -145,12 +154,14 @@ jobs:
           if [ "$LOCAL_CORE" = "$UPSTREAM_CORE" ]; then
             echo "=== 上游仅 build 号变化或无变化（$LOCAL_VERSION -> $UPSTREAM_VERSION，版本主体均为 $LOCAL_CORE），不合并/不推送/不构建 APK。 ==="
             echo "（Preflight 报告里仍可查看上游改了什么；确认此 build 号也需跟随时，可手动合并上游或临时注释掉本步骤。）"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "=== 检测到版本号变化：$LOCAL_CORE -> $UPSTREAM_CORE（$LOCAL_VERSION -> $UPSTREAM_VERSION），继续同步并出包。 ==="
 
       - name: Merge upstream/main (冲突取上游；我方有意删除的上游文件保持删除)
-        if: inputs.mode != 'report'
+        if: success() && inputs.mode != 'report' && steps.version_gate.outputs.skip != 'true'
         env:
           DROPPED_PATHS: |
             .github/workflows/build-and-release.yml
@@ -227,7 +238,7 @@ jobs:
           ls -1 .github/workflows/
 
       - name: Re-apply Leapmotor 2024+ 方控 patch
-        if: inputs.mode != 'report'
+        if: success() && inputs.mode != 'report' && steps.version_gate.outputs.skip != 'true'
         run: |
           DST="android/app/src/main/kotlin/com/songloft/songloft_flutter"
           if [ -d "$DST" ]; then
@@ -242,7 +253,7 @@ jobs:
           fi
 
       - name: Commit & push if changed (否则跳过，不触发构建)
-        if: inputs.mode != 'report'
+        if: success() && inputs.mode != 'report' && steps.version_gate.outputs.skip != 'true'
         run: |
           BRANCH="${{ github.ref_name }}"
           # 先提交可能残留的改动（例如重打的方控补丁、兜底清理掉的上游文件）
