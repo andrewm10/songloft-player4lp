@@ -66,7 +66,8 @@ class _SettingsLogInterceptor extends LogInterceptor {
       );
 
   bool _sensitive(RequestOptions options) =>
-      options.uri.path.endsWith('/settings/github-discovery-token');
+      options.uri.path.endsWith('/settings/github-discovery-token') ||
+      options.uri.path.contains('/auth/personal-tokens');
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {

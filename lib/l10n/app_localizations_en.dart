@@ -9,6 +9,65 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get personalTokenTitle => 'Permanent access tokens';
+
+  @override
+  String get personalTokenHelp =>
+      'Valid until revoked. Grants administrator access to business APIs, excluding token management.';
+
+  @override
+  String get personalTokenCreate => 'Create token';
+
+  @override
+  String get personalTokenName => 'Name';
+
+  @override
+  String get personalTokenPermanent => 'Never expires';
+
+  @override
+  String get personalTokenOnce =>
+      'This is the only time the full token is shown. Copy and save it before closing.';
+
+  @override
+  String get personalTokenCopy => 'Copy token';
+
+  @override
+  String get personalTokenCopyHeader => 'Copy Authorization header';
+
+  @override
+  String get personalTokenCopied => 'Copied';
+
+  @override
+  String get personalTokenCopyFailed =>
+      'Copy failed. Select and copy the token manually.';
+
+  @override
+  String get personalTokenFailed =>
+      'Operation failed. Check that your server supports permanent tokens and retry.';
+
+  @override
+  String get personalTokenDone => 'Done';
+
+  @override
+  String get personalTokenCreated => 'Created';
+
+  @override
+  String get personalTokenLastUsed => 'Last used';
+
+  @override
+  String get personalTokenNeverUsed => 'Never used';
+
+  @override
+  String get personalTokenRevokeHelp =>
+      'Further requests from this device will be rejected immediately. Other devices are unaffected.';
+
+  @override
+  String get personalTokenPrevious => 'Previous page';
+
+  @override
+  String get personalTokenNext => 'Next page';
+
+  @override
   String get githubDiscoveryTokenTitle => 'GitHub Token';
 
   @override
