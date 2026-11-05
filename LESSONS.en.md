@@ -10,6 +10,28 @@ Include rule, scope, full owner/repo#number, failure/fix commit SHAs, actual val
 
 ## Entries
 
+### LYRIC-005: Old queues without a lyric URL must still read saved lyrics
+
+- Scope: lyric provider, playback restoration and cache, songloft-org/songloft#555; baseline `32339c748af046a30a28744e2af10e533400d95a`.
+- Rule: temporarily supplying an endpoint during manual re-fetch does not update persisted queues. Normal restoration must share endpoint resolution and distinguish song changes by the effective endpoint. Web memory cache is not persistence across page loads.
+- Evidence and Done right: old code fails four new cases and passes one guard; fixed code passes all five and all 818 tests. A real temporary backend and Chrome verify two full page loads reading saved lyrics with no forced scraping. Objects, logs and device boundaries: [record](docs/en/issue-555.md).
+- Seen 1× (2026-11-03). Status: local companion fix, no commit/push/release; reporter environment untested.
+
+### SORT-002: edge dragging must use the actual page viewport
+
+- Scope: playlist manual ordering, songloft-org/songloft#551 comment `6576318751`; baseline `feb97bb0c46f5d9e4de3ff5049ebdd07c3a9f605`.
+- Rule: use a Sliver sharing the page Scrollable instead of a disabled shrink-wrapped inner viewport. Its drag proxy still needs Material. Short-list reordering does not prove cross-screen dragging works.
+- Evidence / Done right: four real gesture cases with 80 songs, narrow/wide layouts and both directions fail with zero movement on the old page, then scroll over 200px and persist the order after the fix. All 20 focused tests, 813 full tests, analysis and Web build pass. A real browser moves song 1 to position 25 in a 140-song playlist and verifies the API. See [#551](docs/en/issue-551.md).
+- Seen 1× (2026-11-02). Status: local fix; native Windows acceptance not run. No commit, push or release.
+
+### SORT-001: manual ordering must remain accessible under other view sort fields
+
+- Scope: Flutter playlist details, songloft-org/songloft#551; baseline `5be710cd57227fd60d16396b198be10f700ae91e`.
+- Evidence: the reported screenshot selects ascending file time. The old menu only shows manual ordering when `currentSort == 'position'`, independently of `auto_created` labels or scanning mode. New actual-page regressions fail 14 cases and pass 2 on the old implementation; 12 failures directly assert the missing entry under other sort fields.
+- Rule and fix: a view preference should not hide permanent ordering. Flutter starts dragging from the displayed order, submits all member IDs, then switches to custom ascending order. Cancel writes nothing; search results still exclude permanent sorting.
+- Done right: cover ascending/descending views for seven fields, saving a drag, cancellation and search restrictions. All 809 tests and static analysis pass. See the [#551 record](docs/en/issue-551.md) for both browser checks, source identity and platform boundaries. Lynx already exposes its entry independently of the field; 29 related tests and actual drag persistence pass.
+- Seen 1× (2026-11-02). Status: implementation and local checks pass; commits, pushes and CI follow this delivery. The native Windows package has not been accepted.
+
 ### AUDIO-005: duplicate interruption listeners alone do not prove failed recovery
 
 - Scope: Flutter audio_session / just_audio interruptions, user cancellation and live recovery, songloft-org/songloft-player#52; baseline `538c228677350fa7c87f74bb5fe12e6e71b7ef56`.
