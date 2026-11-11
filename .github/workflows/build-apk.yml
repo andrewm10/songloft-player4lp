@@ -9,9 +9,12 @@ name: Build Songloft APK (Leapmotor 方控)
 #
 # 本工作流对齐官方 .github/workflows/build-and-release.yml 的 build-android job（Flutter 3.44.6、
 # 不做 Go 后端），并参照其 release 段用 gh CLI 发布。除三处面向方控的改造外，已逐项对齐官方构建细节：
-# 方控改造：
-#   ① 拷贝方控补丁（Leapmotor24Wheel.kt / LeapmotorInitProvider.kt）并通过 ContentProvider 自动初始化，
-#      不再覆盖上游 SongloftApplication，从设计上免疫上游 Application 类改动；
+# 方控改造（严格按《方向盘方控方案》第 6 部分「移植到别的 App 的完整步骤」实现）：
+#   ① 三层齐全：收按键（动态注册 + 400ms 去重 + 会话未就绪补发）/ 占媒体源
+#      （com.leapmotor.transfer.MEDIA.INFO + 1s 心跳 + 按键后重推 + 前台门）/ 送达
+#      （文档第 4 步：把「发 HID 报文」换成「调自己的播放器」，这里转发标准媒体键给 audio_service）。
+#      进程级注册通过 ContentProvider 完成（等价于文档第 1 步的 Application.onCreate 注册，
+#      但不改上游 SongloftApplication，免疫上游 Application 类改动）。
 #   ② 构建「按 CPU 架构拆分」的 APK（flutter build apk --release --split-per-abi），
 #      只保留两个包：arm64-v8a（车机，ARM SoC）与 x86_64（PC 模拟器 x86_64 调试用），
 #      剔除 armeabi-v7a 32 位 ARM 包。
@@ -100,17 +103,36 @@ jobs:
             exit 1
           fi
 
+      # 按《方向盘方控方案》第 6 部分「移植到别的 App 的完整步骤」落地：
+      #   第 1 步 进程级注册          -> LeapmotorInitProvider（CP 自动初始化，等价 Application.onCreate）
+      #   第 2 步 三个文件            -> Leapmotor24Wheel（方控接收器）/ LeapmotorMediaClaim（媒体源声明）
+      #                                  / Leapmotor24SteeringReceiver（静态接收器）；另加 ADB 配置入口
+      #   第 3 步 manifest 静态接收器 -> 由 inject_provider.py 注入
+      #   第 4 步 送达改为调自己的播放器 -> 转发标准 ACTION_MEDIA_BUTTON 给 audio_service
+      #   第 5 步 媒体源填真实曲目     -> 读本 App 媒体通知的标题/歌手
       - name: Apply Leapmotor 2024+ 方控 patch (拷贝新增 Kotlin 文件，不改上游 Application)
         run: |
+          set -euo pipefail
           DST="android/app/src/main/kotlin/com/songloft/songloft_flutter"
           mkdir -p "$DST"
-          cp "$GITHUB_WORKSPACE/patch/Leapmotor24Wheel.kt" "$DST/"
-          cp "$GITHUB_WORKSPACE/patch/LeapmotorInitProvider.kt" "$DST/"
-          cp "$GITHUB_WORKSPACE/patch/Leapmotor24ConfigReceiver.kt" "$DST/"
+          PATCH_FILES=(
+            "Leapmotor24Wheel.kt"
+            "LeapmotorMediaClaim.kt"
+            "Leapmotor24SteeringReceiver.kt"
+            "Leapmotor24ConfigReceiver.kt"
+            "LeapmotorInitProvider.kt"
+          )
+          for f in "${PATCH_FILES[@]}"; do
+            if [ ! -f "$GITHUB_WORKSPACE/patch/$f" ]; then
+              echo "::error::缺少补丁文件 patch/$f，方控功能将不完整，终止构建。"
+              exit 1
+            fi
+            cp "$GITHUB_WORKSPACE/patch/$f" "$DST/"
+          done
           echo "Applied patch files:"
           ls -l "$DST"
 
-      - name: Inject Leapmotor provider & config receiver into AndroidManifest (幂等)
+      - name: Inject Leapmotor provider, static receiver & config receiver into AndroidManifest (幂等)
         run: python3 "$GITHUB_WORKSPACE/patch/inject_provider.py"
 
       - name: Flutter clean (清除陈旧构建产物)
@@ -298,8 +320,11 @@ jobs:
             Flutter: ${{ env.FLUTTER_VERSION }}
 
             ## 功能
-            - 零跑方向盘媒体键（上一首 / 下一首 / 播放暂停）监听，转发给 audio_service 媒体会话
-            - 协议：广播 com.leapmotor.steerwheelcontrol.media，int extra "action"（1/4/7）
+            - 零跑方向盘媒体键（上一首 / 下一首 / 播放暂停）完整三层适配：
+              收按键（动态注册 + 同码 400ms 去重 + 会话未就绪补发 400ms×20）
+              / 占媒体源（MEDIA.INFO 声明 + 1 秒心跳 + 按键后立即重推 + 前台门）
+              / 送达（标准媒体键，按下 + 抬起成对，交由 audio_service 驱动播放）
+            - 协议：广播 com.leapmotor.steerwheelcontrol.media，int extra "action"（1=上一曲/4=下一曲/7=播放暂停）
             - 适用零跑 2024–2027 款（C10 及以后）
 
             ## 下载（按你的环境二选一）
@@ -318,7 +343,21 @@ jobs:
 
             ## 验证方控
                 adb logcat -s Songloft-Leapmotor
-            按方控「下一首」应看到：方控转发 action=4 -> keyCode=87
+            按方控「下一首」应依次看到四行（对应方控方案第 7 节）：
+                方控接收器已注册（com.leapmotor.steerwheelcontrol.media）
+                方控广播: action=4
+                方控 → 下一曲（keyCode=87，按下+抬起成对）
+                媒体源：广播声明sent=N skipped=M 自己在前台=true top=...
+
+            ## 方控现场调试（无需重打包）
+                # 查询当前模式与抢源统计
+                adb shell am broadcast -a com.songloft.songloft_flutter.leapmotor24.CONFIGURE
+                # 上/下一曲反了：改写映射（87=下一曲 88=上一曲 85=播放暂停）
+                adb shell am broadcast -a com.songloft.songloft_flutter.leapmotor24.CONFIGURE --es map "1=88,4=87,7=85"
+                # 恢复默认映射
+                adb shell am broadcast -a com.songloft.songloft_flutter.leapmotor24.CONFIGURE --es map reset
+                # 若与原车音乐双控/异常，先关掉媒体源声明看是否恢复
+                adb shell am broadcast -a com.songloft.songloft_flutter.leapmotor24.CONFIGURE --es media_claim off
 
             本 Release 由 fork 的 GitHub Actions 自动构建并滚动更新，版本号跟随上游 songloft-player 源码。
         run: |
