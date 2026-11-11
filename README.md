@@ -33,11 +33,13 @@ songloft-leapmotor-patch/
 │   ├── build-apk.yml        # GitHub Actions：按 CPU 架构拆分编译 APK 并发布到 Releases
 │   └── sync-upstream.yml    # （可选）自动跟随上游 songloft-player 更新
 └── patch/
-    ├── Leapmotor24Wheel.kt       # 新增：零跑 2024+ 方控广播监听 + 媒体键转发 + 来源模式
-    ├── LeapmotorInitProvider.kt  # 新增：ContentProvider 自动初始化入口（无需改上游 Application）
-    ├── Leapmotor24ConfigReceiver.kt # 新增：ADB 配置入口，实车切换方控来源（规避跳两首）
-    ├── inject_provider.py         # 增量注入 Provider/Receiver 到 AndroidManifest（幂等）
-    └── pin_shared_prefs.py        # 钉住 shared_preferences_android=2.4.28（绕开 2.5.0 JNI 崩溃）
+    ├── Leapmotor24Wheel.kt              # 第一层：方控广播监听 + 400ms 去重 + 补发 + 按下/抬起成对转发
+    ├── LeapmotorMediaClaim.kt           # 第二层：媒体源声明 MEDIA.INFO（1s 心跳 + 前台门），防双控/抢归属
+      ├── Leapmotor24SteeringReceiver.kt # 静态接收器（文档第 3 步的兜底路径，与动态注册共用去重状态）
+    ├── LeapmotorInitProvider.kt         # 进程级初始化入口（ContentProvider，等价 Application.onCreate 注册）
+    ├── Leapmotor24ConfigReceiver.kt     # ADB 配置入口：来源模式 / 键码映射 / 媒体源开关
+    ├── inject_provider.py               # 增量注入 Provider/Receiver 到 AndroidManifest（幂等）
+    └── pin_shared_prefs.py              # 钉住 shared_preferences_android=2.4.28（绕开 2.5.0 JNI 崩溃）
 ```
 
 把 `patch/` 和 `.github/` 两个目录原样放进你的 `songloft-player` fork 即可。
