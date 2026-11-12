@@ -195,13 +195,32 @@ jobs:
       - name: Setup Android signing
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            # 四个 Secret 必须成组配置。只给 BASE64 时 Gradle 会拿到空 alias/password，
+            # 直到 signingConfig 阶段才炸，日志离根因很远，所以在这里提前失败。
+            MISSING=""
+            [ -n "$ANDROID_KEYSTORE_PASSWORD" ] || MISSING="$MISSING ANDROID_KEYSTORE_PASSWORD"
+            [ -n "$ANDROID_KEY_ALIAS" ] || MISSING="$MISSING ANDROID_KEY_ALIAS"
+            [ -n "$ANDROID_KEY_PASSWORD" ] || MISSING="$MISSING ANDROID_KEY_PASSWORD"
+            if [ -n "$MISSING" ]; then
+              echo "::error::已配置 ANDROID_KEYSTORE_BASE64，但缺少:$MISSING —— 四个 Secret 必须成组配置"
+              exit 1
+            fi
             echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
             echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
             echo "已解码签名 keystore -> $RUNNER_TEMP/release.jks"
+            echo "=== 本次使用的签名证书（每次构建都应完全一致）==="
+            # 强制 keytool 英文输出 + grep -a：避免非 UTF-8 locale 下 grep 判定为二进制、
+            # 只打印 "Binary file matches" 而看不到真正的指纹。
+            keytool -J-Duser.language=en -J-Duser.country=US -list -v -keystore "$RUNNER_TEMP/release.jks" \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" 2>/dev/null \
+              | grep -aE "Alias name|SHA256" || echo "(指纹读取失败，请检查 ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS)"
           else
-            echo "未配置 ANDROID_KEYSTORE_BASE64，跳过自定义签名（使用默认 debug 签名）"
+            echo "::warning::未配置 ANDROID_KEYSTORE_BASE64 —— 走默认 debug 签名，密钥由 runner 现场随机生成，产出的 APK 无法覆盖安装（必须先卸载）。"
           fi
 
       # 原生契约哈希：官方在 pub get 之后、build 之前执行，并把结果写进资产
@@ -267,6 +286,33 @@ jobs:
           rm -f "$SRC/app-armeabi-v7a-release.apk"
           echo "=== APK 产物（arm64-v8a 车机 / x86_64 模拟器调试）==="
           ls -lh apk-output/
+
+      # 覆盖安装（adb install -r）要求「包名 + 签名 + versionCode 不降」三项同时成立。
+      # 这里把最终产物的证书指纹打进日志和 Job Summary，作为下次能否直接覆盖安装的凭据；
+      # 指纹与上次构建不一致，说明 keystore 被换过，必须先卸载。
+      - name: Verify APK signing certificate
+        if: success()
+        run: |
+          APKSIGNER=$(ls -1 "${ANDROID_HOME}"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)
+          if [ -z "$APKSIGNER" ]; then
+            APKSIGNER=$(ls -1 "${ANDROID_SDK_ROOT}"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)
+          fi
+          if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
+            echo "::warning::未找到 apksigner，跳过 APK 证书校验"
+            exit 0
+          fi
+          echo "使用 apksigner: $APKSIGNER"
+          echo "| APK | 签名证书 SHA-256 |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          for f in apk-output/*.apk; do
+            INFO=$("$APKSIGNER" verify --print-certs "$f" 2>&1)
+            SHA=$(printf '%s\n' "$INFO" | grep -m1 "certificate SHA-256 digest:" | sed 's/.*digest: //')
+            echo "=== $(basename "$f") ==="
+            echo "SHA-256: ${SHA:-未知}"
+            echo "$INFO" | grep -E "Number of signers" || true
+            echo "| $(basename "$f") | ${SHA:-未知} |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo "::notice::同一 keystore 的 APK 指纹固定；与已装应用一致且 versionCode 不降即可 adb install -r 覆盖安装。"
 
       - name: Upload build log (on failure)
         if: failure()
