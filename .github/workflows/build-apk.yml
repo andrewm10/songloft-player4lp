@@ -135,6 +135,17 @@ jobs:
       - name: Inject Leapmotor provider, static receiver & config receiver into AndroidManifest (幂等)
         run: python3 "$GITHUB_WORKSPACE/patch/inject_provider.py"
 
+      # 插件界面字号补偿（高分屏车机）：插件是 WebView 里的 HTML/CSS，字号写死在插件
+      # 自己的 CSS 里；Flutter「设置 → 字体大小」（TextScaler）对它完全无效，上游又关了
+      # supportZoom，于是 2560×1440 这类屏上插件字很小、还无法手动放大。
+      # 这里在构建时给 initialSettings 注入 textZoom（默认 130%）并放开双指缩放，
+      # 走文本注入而非改上游源码 → 每次同步上游都不会冲突。
+      # 临时改倍率不用改代码：仓库 Settings → Variables 里加 PLUGIN_TEXT_ZOOM 即可。
+      - name: "Patch plugin WebView text zoom (high-DPI screens)"
+        env:
+          PLUGIN_TEXT_ZOOM: "${{ vars.PLUGIN_TEXT_ZOOM || '130' }}"
+        run: python3 "$GITHUB_WORKSPACE/patch/patch_webview_zoom.py"
+
       - name: Flutter clean (清除陈旧构建产物)
         # 清掉 build/ 与 .dart_tool，避免上一次构建的陈旧产物混入本次 APK。
         # 注意：flutter clean **不会**清 pub-cache，也**不会**改 pubspec.lock，
