@@ -1,3 +1,6 @@
+import '../../../shared/widgets/scrolling_text.dart';
+import '../../../shared/widgets/manage_tags_modal.dart';
+import 'widgets/playlist_browse_adapters.dart' show PlaylistCustomTags;
 import 'dart:async';
 
 import '../../../shared/widgets/network_cover_image.dart';
@@ -27,6 +30,7 @@ import '../../library/presentation/song_edit_page.dart';
 import '../../player/domain/playback_context.dart';
 import '../../player/presentation/providers/player_provider.dart';
 import '../../player/presentation/widgets/play_history_sheet.dart';
+import '../../player/presentation/widgets/playlist_resume_card.dart';
 import '../../settings/presentation/providers/cache_download_provider.dart';
 import '../../settings/presentation/providers/song_cache_provider.dart';
 import '../domain/playlist.dart';
@@ -211,12 +215,20 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
   }
 
   /// 定位到当前正在播放的歌曲
-  Future<void> _scrollToCurrentSong(List<Song> songs) async {
+  Future<void> _locateResume(int songId) async {
+    _searchController.clear();
+    await ref.read(playlistSongsProvider(_playlistIdInt).notifier).search('');
+    if (!mounted) return;
+    await _scrollToCurrentSong([], songId: songId);
+  }
+
+  Future<void> _scrollToCurrentSong(List<Song> songs, {int? songId}) async {
     final playerState = ref.read(playerStateProvider);
     final currentSong = playerState.currentSong;
-    if (currentSong == null) return;
+    final targetId = songId ?? currentSong?.id;
+    if (targetId == null) return;
 
-    var index = songs.indexWhere((s) => s.id == currentSong.id);
+    var index = songs.indexWhere((s) => s.id == targetId);
 
     if (index < 0) {
       await ref.read(playlistSongsProvider(_playlistIdInt).notifier).loadAll();
@@ -226,7 +238,7 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
       if (!mounted) return;
       final fullSongs =
           ref.read(playlistSongsProvider(_playlistIdInt)).value?.items ?? songs;
-      index = fullSongs.indexWhere((s) => s.id == currentSong.id);
+      index = fullSongs.indexWhere((s) => s.id == targetId);
       if (index < 0) {
         if (mounted) {
           ResponsiveSnackBar.show(
@@ -525,7 +537,7 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
           pinned: true,
           backgroundColor: colorScheme.surface,
           foregroundColor: colorScheme.onSurface,
-          title: Text(playlist.name),
+          title: ScrollingText(text: playlist.name),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             tooltip: AppLocalizations.of(context).playlistBack,
@@ -547,6 +559,14 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
 
         // 封面 header 区域（独立于顶栏）
         SliverToBoxAdapter(child: _buildCoverHeader(context, playlist)),
+        if (playlist.type == 'normal')
+          SliverToBoxAdapter(
+            child: PlaylistResumeCard(
+              id: playlist.id,
+              audiobook: playlist.labels.contains('audiobook'),
+              onLocate: _locateResume,
+            ),
+          ),
 
         // 歌单信息
         SliverToBoxAdapter(
@@ -609,7 +629,7 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
         AppBar(
           backgroundColor: colorScheme.surface,
           foregroundColor: colorScheme.onSurface,
-          title: Text(playlist.name),
+          title: ScrollingText(text: playlist.name),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             tooltip: AppLocalizations.of(context).playlistBack,
@@ -675,7 +695,9 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
     final infoParts = <String>[];
     final l10n = AppLocalizations.of(context);
     if (playlist.type == 'radio') infoParts.add(l10n.songTypeRadio);
-    for (final label in playlist.labels) {
+    for (final label in playlist.labels.where(
+      (label) => !label.startsWith('tag:'),
+    )) {
       infoParts.add(_getLabelName(label));
     }
     infoParts.add(l10n.songsCount(songCount));
@@ -721,20 +743,23 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
           ),
           const SizedBox(height: AppSpacing.lg),
           // 歌单名称
-          Text(
-            playlist.name,
+          ScrollingText(
+            text: playlist.name,
             style: textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.bold,
             ),
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
           ),
           // 描述
-          if (playlist.description?.isNotEmpty == true) ...[
+          if (playlist.type == 'normal')
+            PlaylistResumeCard(
+              id: playlist.id,
+              audiobook: playlist.labels.contains('audiobook'),
+              onLocate: _locateResume,
+            ),
+          if (playlist.displayDescription?.isNotEmpty == true) ...[
             const SizedBox(height: AppSpacing.sm),
             Text(
-              playlist.description!,
+              playlist.displayDescription!,
               style: textTheme.bodyMedium?.copyWith(
                 color: colorScheme.onSurfaceVariant,
               ),
@@ -744,10 +769,11 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
             ),
           ],
           const SizedBox(height: AppSpacing.sm),
+          PlaylistCustomTags(labels: playlist.labels),
           // 标签 / 歌曲数
           Text(
             subtitle,
-            style: textTheme.bodySmall?.copyWith(
+            style: textTheme.bodyLarge?.copyWith(
               color: colorScheme.onSurfaceVariant,
             ),
             textAlign: TextAlign.center,
@@ -761,7 +787,11 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
                 onPressed:
                     songs.isEmpty ? null : () => _playAll(playlist, songs),
                 icon: const Icon(Icons.play_arrow),
-                label: Text(l10n.playlistPlayAll),
+                label: Text(
+                  _searchController.text.isEmpty
+                      ? l10n.playlistPlayAll
+                      : l10n.playlistPlayWhole,
+                ),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size(double.infinity, 48),
                 ),
@@ -884,7 +914,7 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
     final paletteAsync = ref.watch(coverColorsProvider(coverUrl));
     final palette = paletteAsync.value;
 
-    final coverSize = isWide ? 180.0 : 140.0;
+    final coverSize = isWide ? 180.0 : 96.0;
     final bgColor =
         palette?.darkMutedColor ?? colorScheme.surfaceContainerHighest;
 
@@ -898,7 +928,7 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
         ),
       ),
       padding: EdgeInsets.symmetric(
-        vertical: isWide ? AppSpacing.lg : AppSpacing.md,
+        vertical: isWide ? AppSpacing.lg : AppSpacing.sm,
       ),
       child: Center(
         child: Container(
@@ -958,7 +988,9 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
     final infoParts = <String>[];
     final l10n = AppLocalizations.of(context);
     if (playlist.type == 'radio') infoParts.add(l10n.songTypeRadio);
-    for (final label in playlist.labels) {
+    for (final label in playlist.labels.where(
+      (label) => !label.startsWith('tag:'),
+    )) {
       infoParts.add(_getLabelName(label));
     }
     infoParts.add(l10n.songsCount(songCount));
@@ -970,19 +1002,20 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 描述（如果有）
-          if (playlist.description?.isNotEmpty == true) ...[
+          if (playlist.displayDescription?.isNotEmpty == true) ...[
             Text(
-              playlist.description!,
+              playlist.displayDescription!,
               style: textTheme.bodyMedium?.copyWith(
                 color: colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: AppSpacing.sm),
           ],
+          PlaylistCustomTags(labels: playlist.labels),
           // 聚合副标题
           Text(
             subtitle,
-            style: textTheme.bodySmall?.copyWith(
+            style: textTheme.bodyLarge?.copyWith(
               color: colorScheme.onSurfaceVariant,
             ),
           ),
@@ -1249,6 +1282,9 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
         icon: const Icon(Icons.more_vert),
         onSelected: (value) {
           switch (value) {
+            case 'manage_tags':
+              ManageTagsModal.show(context, playlistIds: [playlist.id]);
+              break;
             case 'add_songs':
               _addSongs();
               break;
@@ -1272,6 +1308,15 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
         },
         itemBuilder:
             (context) => [
+              PopupMenuItem(
+                value: 'manage_tags',
+                child: ListTile(
+                  leading: const Icon(Icons.label_outline),
+                  title: Text(l10n.manageTags),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
               PopupMenuItem(
                 value: 'add_songs',
                 child: ListTile(
@@ -1416,7 +1461,11 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
                 onPressed:
                     songs.isEmpty ? null : () => _playAll(playlist, songs),
                 icon: const Icon(Icons.play_arrow),
-                label: Text(l10n.playlistPlayAll),
+                label: Text(
+                  _searchController.text.isEmpty
+                      ? l10n.playlistPlayAll
+                      : l10n.playlistPlayWhole,
+                ),
                 style: FilledButton.styleFrom(
                   minimumSize: context.responsiveButtonMinSize,
                 ),
@@ -1547,6 +1596,8 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
   String _getLabelName(String label) {
     final l10n = AppLocalizations.of(context);
     switch (label) {
+      case 'audiobook':
+        return l10n.playlistAudiobook;
       case 'built_in':
         return l10n.playlistLabelBuiltIn;
       case 'auto_created':
@@ -1729,15 +1780,7 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
     final total = state?.total ?? songs.length;
     await ref
         .read(playerStateProvider.notifier)
-        .playPlaylistFromLoaded(
-          loadedSongs: songs,
-          startIndex: 0,
-          playlistId: playlist.id,
-          total: total,
-          sort: state?.sort ?? 'position',
-          order: state?.order ?? 'asc',
-          keyword: state?.keyword ?? '',
-        );
+        .playPlaylistTarget(playlistId: playlist.id);
     if (!mounted) return;
     ResponsiveSnackBar.show(context, message: l10n.playlistPlayingCount(total));
   }
@@ -1756,18 +1799,9 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage>
     debugPrint('[Player] Play song: ${song.title} at index $index');
     // 从已加载分页开始播放并后台补齐整个歌单队列，避免队列被截断到已加载页
     // （songloft-org/songloft#299）。
-    final state = ref.read(playlistSongsProvider(_playlistIdInt)).value;
     ref
         .read(playerStateProvider.notifier)
-        .playPlaylistFromLoaded(
-          loadedSongs: songs,
-          startIndex: index,
-          playlistId: _playlistIdInt,
-          total: state?.total ?? songs.length,
-          sort: state?.sort ?? 'position',
-          order: state?.order ?? 'asc',
-          keyword: state?.keyword ?? '',
-        );
+        .playPlaylistTarget(playlistId: _playlistIdInt, song: song);
     ResponsiveSnackBar.show(
       context,
       message: AppLocalizations.of(context).playlistPlayingSong(song.title),

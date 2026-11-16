@@ -19,6 +19,7 @@ class PlaylistRepository implements IPlaylistRepository {
   Future<PlaylistListResponse> getPlaylists({
     String? type,
     String? songSource,
+    int? tagId,
     String? excludeLabels,
     String? keyword,
     int limit = 20,
@@ -28,6 +29,7 @@ class PlaylistRepository implements IPlaylistRepository {
       return await playlistApi.getPlaylists(
         type: type,
         songSource: songSource,
+        tagId: tagId,
         excludeLabels: excludeLabels,
         keyword: keyword,
         limit: limit,
@@ -74,6 +76,7 @@ class PlaylistRepository implements IPlaylistRepository {
     String? coverPath,
     String? coverUrl,
     int? coverSongId,
+    bool? audiobook,
   }) async {
     try {
       return await playlistApi.updatePlaylist(
@@ -83,6 +86,7 @@ class PlaylistRepository implements IPlaylistRepository {
         coverPath: coverPath,
         coverUrl: coverUrl,
         coverSongId: coverSongId,
+        audiobook: audiobook,
       );
     } on DioException catch (e) {
       throw _handleError(e);

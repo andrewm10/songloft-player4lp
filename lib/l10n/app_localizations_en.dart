@@ -9,6 +9,35 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get playlistQueueLoadFailed =>
+      'Queue loading is incomplete. Loaded tracks are kept; tap Continue to retry.';
+
+  @override
+  String get playlistAudiobook => 'Audiobook';
+
+  @override
+  String get playlistContinue => 'Continue playing';
+
+  @override
+  String get playlistContinueBook => 'Continue listening';
+
+  @override
+  String get playlistFinished => 'Finished · Play from beginning';
+
+  @override
+  String get playlistPlayWhole => 'Play entire playlist';
+
+  @override
+  String get playlistProgressInvalid =>
+      'The last track is no longer in this playlist';
+
+  @override
+  String get playlistProgressConflict => 'Progress changed on another device';
+
+  @override
+  String get playlistLocateResume => 'Locate last listened track';
+
+  @override
   String get personalTokenTitle => 'Permanent access tokens';
 
   @override
@@ -4937,7 +4966,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String deleteTagConfirm(String name) {
-    return 'Delete tag \"$name\"? Songs under this tag will not be deleted.';
+    return 'Delete tag \"$name\"? Linked songs and playlists will not be deleted.';
   }
 
   @override
@@ -5039,4 +5068,15 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get settingsHomeShowRadiosDesc =>
       'Show My Radios on the home page. This choice stays on this device.';
+
+  @override
+  String get tagSongs => 'Songs';
+
+  @override
+  String get tagPlaylists => 'Playlists';
+
+  @override
+  String tagPlaylistCount(int count) {
+    return '$count playlists';
+  }
 }

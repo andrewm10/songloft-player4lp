@@ -11,6 +11,7 @@ abstract class IPlaylistRepository {
   Future<PlaylistListResponse> getPlaylists({
     String? type,
     String? songSource,
+    int? tagId,
     String? excludeLabels,
     String? keyword,
     int limit = 20,
@@ -36,6 +37,7 @@ abstract class IPlaylistRepository {
     String? coverPath,
     String? coverUrl,
     int? coverSongId,
+    bool? audiobook,
   });
 
   /// 上传歌单封面图片

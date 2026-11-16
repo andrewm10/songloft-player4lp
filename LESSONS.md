@@ -10,6 +10,45 @@
 
 ## 条目
 
+### CI-002：发布验收必须核对资产，AppImage 显式指定架构
+
+- 范围：Linux AppImage 打包和正式 Release；发布源码 `65dc1d978705a0f83ae6f8bbc226c489f48c946e`。
+- 证据：[v2.13.10 Linux job](https://github.com/songloft-org/songloft-player/actions/runs/43669474220/job/132676079255) 的 AppImage 日志实际退出 1，提示自动检测到多种架构、要求设置 `ARCH=x86_64`。`continue-on-error` 让 job 显示成功，Release 只有 20 项资产，较上个正式版缺少 `songloft-linux-x64.AppImage`。
+- 规则：固定 x64 job 的 AppImage 工具架构；正式 tag 的 AppImage 失败必须阻止发布，收集前检查文件存在且非空。验收实际 Release 的文件清单及版本/提交，不能只看绿色 job。补发资产使用原发布 bundle，校验 GitHub 提供的 SHA-256，不更换已有版本标签。
+- 验证：actionlint v1.7.12 通过；原始日志 `/tmp/songloft-release-20261115-flutter-linux.log`。本次仅调整打包配置，补包结果及新配置的远端 CI 随本批交付记录；Not run：桌面实际播放和安装体验。
+- Done right：修复 `968148149781f3869cde11bfa8329393cdf18f67` 的 [Linux job](https://github.com/songloft-org/songloft-player/actions/runs/43671029622/job/132680883591) 实际打包成功并上传 4 个 Linux 文件，日志 `/tmp/songloft-release-20261115-appimage-ci-fixed.log`。本次稳定版补包使用 Ubuntu 24.04 和原 release bundle（GitHub SHA-256 `5801480917b0765ef2128c1294ce5b5476576c635393c921a00aa7cc860af72f`）；解包后 35 个原文件逐一哈希一致，18 个 ELF 均为 x86_64。补发 AppImage 为 33,412,288 字节，GitHub 回读摘要与本地 `71fb1c786ebced7750ffe1fd9aab4b87896d4fbefb0f174e5e65b32fe048cb51` 一致，Release 恢复为 21 项资产；证据 `/tmp/songloft-release-20261115/appimage-repair/verification.json`。
+- Seen 1× (2026-11-15)。状态：配置修复、远端 Linux 打包和同版本资产补齐均已验收；未更换原发布标签。
+
+### CI-001：JNI 发布校验必须使用本次依赖生成的签名
+
+- 范围：Android 标准版及父仓库 Bundle 的 APK 校验脚本；基线 `b1a1a6f6b0efebb6aeae6910afc70fd8f619d2a7`。
+- 证据：[失败 CI](https://github.com/songloft-org/songloft-player/actions/runs/43571666848) 的三种 ABI APK 已编译成功，但首个 JNI 校验失败。该次解析 `shared_preferences_android 2.5.5`，生成的 `getAll` 参数已由 `java.util.List` 改为 `byte[]`，脚本仍要求 2.5.1 的旧描述符。
+- 规则与 Done right：从 `.dart_tool/package_config.json` 定位本次依赖，读取生成绑定的实际描述符，再与 release DEX 精确比较；解析失败必须中止，不能用新旧签名任选其一，也不能删掉协程运行时校验。旧脚本在新增回归下有 4 项失败，包括错误接受「新 Dart 绑定配旧 APK」；修复后 8 项 JNI 回归与 1 项原生契约回归通过。实际 2.5.1 / 2.5.5 绑定均补验解析，DEX 输出使用夹具。
+- 验证：Linux amd64 / Python 3.12.11，`python3 -m unittest discover -s scripts/tests -p '*_test.py'`；日志 `/tmp/songloft-flutter-jni-{before,after}.log`。Not run：本地完整 Android 编译及真机启动；三种 ABI 的正式构建校验由本次修复 SHA 的 CI 单独验收，不把夹具当成真实 APK。
+- 远端补验：修复 `2bc0b44b8120f01bb2b4c50b0c8b55b9a1f79d95` 的 [Android job](https://github.com/songloft-org/songloft-player/actions/runs/43668053572/job/132671758046) 解析 2.5.5，9 项脚本测试、ARM64/ARMv7/x86_64 release APK 构建及逐包 JNI 校验、热更新补丁生成均通过；日志 `/tmp/songloft-flutter-jni-android-ci.log`。本次未修改原生运行时代码，真机启动仍 Not run。
+- Seen 1× (2026-11-15)。状态：脚本修复、本地回归与远端三种 ABI 校验完成；全平台 CI 和正式版发布随本批交付核对。
+
+### RESUME-002：大歌单不能等全部分页成功才公布队列
+
+- 范围：歌单续播与分页队列，基线 4708c64 + 本批工作树。
+- 证据：原实现临时只保留一首并等待全量替换；千首慢分页的浏览器验证已确认修复后先显示 100 首，未完成即可实际播放下一集，最后显示 1000 首。见[验证记录](docs/cn/playlist-resume-queue.md)。
+- 规则与 Done right：先加载目标邻域，按连续区间逐批公布，追加/前插时按歌曲身份映射当前索引和导航；复用同曲音频不能跳过残缺队列修复。测试必须停住后续请求检查中间队列，不能只断言最终长度。
+- Seen 1× (2026-11-14)。状态：本地测试与 Web 验证通过，原生设备 Not run，交付按本批记录。
+
+### FAVORITE-001：会话重置必须拒绝旧收藏初始化
+
+- 范围：收藏初始化与服务端变更订阅，songloft-org/songloft#563。
+- 规则：停止订阅只能阻止后续事件；正在初始化的异步服务也要带会话代数，reset 后不得恢复旧 ID 或清除新初始化状态。
+- 证据与 Done right：隔离加载旧 FavoriteService 的新回归在新会话 id=2 断言失败，旧响应将其写回 1；加入代数检查后通过。831 项完整 Flutter 测试和静态分析通过；日志 `/tmp/songloft-563-extra/flutter-{negative-init,tests,analyze-delivery}.log`。
+- Seen 1× (2026-11-11)。状态：新增订阅机制验证，提交前验证；交付状态见本批记录，详见 [记录](docs/cn/issue-563.md)。
+
+### LAYOUT-006：收窄序号时同时固定文字行数
+
+- 范围：歌单歌曲行，songloft-org/songloft#562。
+- 规则：序号栏收窄后，三位数与首字母提示的组合仍须保持各自单行；同时验收长序号、点击区域与大字号，不能只看标题变宽。
+- 证据与 Done right：本批 32px → 24px 后，既有 `playlist_song_tile_test` 检出 4px 底部溢出；限制序号单行后两项回归通过。数据与平台边界见 [记录](docs/cn/issue-562.md)。
+- Seen 1× (2026-11-11)。状态：本地开发中发现并修正，未提交或发布。
+
 ### LYRIC-005：旧队列缺少歌词地址时仍需读取已保存歌词
 
 - 范围：歌词 Provider、播放恢复与缓存，songloft-org/songloft#555；基线 `32339c748af046a30a28744e2af10e533400d95a`。

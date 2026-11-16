@@ -100,6 +100,60 @@ abstract class AppLocalizations {
     Locale('zh'),
   ];
 
+  /// No description provided for @playlistQueueLoadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'播放队列加载未完成，已保留已加载的歌曲；请点继续播放重试。'**
+  String get playlistQueueLoadFailed;
+
+  /// No description provided for @playlistAudiobook.
+  ///
+  /// In zh, this message translates to:
+  /// **'有声书'**
+  String get playlistAudiobook;
+
+  /// No description provided for @playlistContinue.
+  ///
+  /// In zh, this message translates to:
+  /// **'继续播放'**
+  String get playlistContinue;
+
+  /// No description provided for @playlistContinueBook.
+  ///
+  /// In zh, this message translates to:
+  /// **'继续收听'**
+  String get playlistContinueBook;
+
+  /// No description provided for @playlistFinished.
+  ///
+  /// In zh, this message translates to:
+  /// **'已听完 · 从头播放'**
+  String get playlistFinished;
+
+  /// No description provided for @playlistPlayWhole.
+  ///
+  /// In zh, this message translates to:
+  /// **'播放整个歌单'**
+  String get playlistPlayWhole;
+
+  /// No description provided for @playlistProgressInvalid.
+  ///
+  /// In zh, this message translates to:
+  /// **'上次收听的歌曲已不在歌单中'**
+  String get playlistProgressInvalid;
+
+  /// No description provided for @playlistProgressConflict.
+  ///
+  /// In zh, this message translates to:
+  /// **'进度已在其他设备更新'**
+  String get playlistProgressConflict;
+
+  /// No description provided for @playlistLocateResume.
+  ///
+  /// In zh, this message translates to:
+  /// **'定位上次收听'**
+  String get playlistLocateResume;
+
   /// No description provided for @personalTokenTitle.
   ///
   /// In zh, this message translates to:
@@ -8559,7 +8613,7 @@ abstract class AppLocalizations {
   /// No description provided for @deleteTagConfirm.
   ///
   /// In zh, this message translates to:
-  /// **'确定删除标签「{name}」？该标签下的歌曲不会被删除。'**
+  /// **'确定删除标签「{name}」？关联歌曲和歌单不会被删除。'**
   String deleteTagConfirm(String name);
 
   /// No description provided for @collapseSidebar.
@@ -8735,6 +8789,24 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'在首页显示「我的电台」，选择保存在本机。'**
   String get settingsHomeShowRadiosDesc;
+
+  /// No description provided for @tagSongs.
+  ///
+  /// In zh, this message translates to:
+  /// **'歌曲'**
+  String get tagSongs;
+
+  /// No description provided for @tagPlaylists.
+  ///
+  /// In zh, this message translates to:
+  /// **'歌单'**
+  String get tagPlaylists;
+
+  /// No description provided for @tagPlaylistCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 个歌单'**
+  String tagPlaylistCount(int count);
 }
 
 class _AppLocalizationsDelegate

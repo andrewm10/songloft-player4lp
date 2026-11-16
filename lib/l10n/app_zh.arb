@@ -1,4 +1,13 @@
 {
+  "playlistQueueLoadFailed": "播放队列加载未完成，已保留已加载的歌曲；请点继续播放重试。",
+  "playlistAudiobook": "有声书",
+  "playlistContinue": "继续播放",
+  "playlistContinueBook": "继续收听",
+  "playlistFinished": "已听完 · 从头播放",
+  "playlistPlayWhole": "播放整个歌单",
+  "playlistProgressInvalid": "上次收听的歌曲已不在歌单中",
+  "playlistProgressConflict": "进度已在其他设备更新",
+  "playlistLocateResume": "定位上次收听",
 "personalTokenTitle": "永久访问 Token",
 "personalTokenHelp": "永久有效，直到手动撤销。拥有管理员业务 API 权限，不能管理 Token。",
 "personalTokenCreate": "创建 Token",
@@ -2965,7 +2974,7 @@
   "tagDeleted": "标签已删除",
   "tagRenamed": "标签已重命名",
   "renameTag": "重命名标签",
-  "deleteTagConfirm": "确定删除标签「{name}」？该标签下的歌曲不会被删除。",
+  "deleteTagConfirm": "确定删除标签「{name}」？关联歌曲和歌单不会被删除。",
   "@deleteTagConfirm": {
     "placeholders": {
       "name": {"type": "String"}
@@ -3009,5 +3018,15 @@
   "settingsHomeShowRadioFavorites": "在首页显示电台收藏",
   "settingsHomeShowRadioFavoritesDesc": "仅控制电台区块中的首页卡片，需开启「显示电台区块」。按服务器和账号保存在本机。",
   "settingsHomeShowRadios": "显示电台区块",
-  "settingsHomeShowRadiosDesc": "在首页显示「我的电台」，选择保存在本机。"
+  "settingsHomeShowRadiosDesc": "在首页显示「我的电台」，选择保存在本机。",
+  "tagSongs": "歌曲",
+  "tagPlaylists": "歌单",
+  "tagPlaylistCount": "{count} 个歌单",
+  "@tagPlaylistCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

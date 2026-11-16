@@ -10,6 +10,45 @@ Include rule, scope, full owner/repo#number, failure/fix commit SHAs, actual val
 
 ## Entries
 
+### CI-002: Inspect release assets and specify the AppImage architecture
+
+- Scope: Linux AppImage packaging and stable Releases; released source `65dc1d978705a0f83ae6f8bbc226c489f48c946e`.
+- Evidence: the [v2.13.10 Linux job](https://github.com/songloft-org/songloft-player/actions/runs/43669474220/job/132676079255) exited 1 during AppImage packaging, reporting multiple detected architectures and requesting `ARCH=x86_64`. `continue-on-error` left the job green. The Release had only 20 assets, missing `songloft-linux-x64.AppImage` compared with the previous stable release.
+- Rule: explicitly set the AppImage tool architecture for the x64 job. AppImage failure must block stable tag publication; require an existing nonempty file before collection. Verify actual release filenames and version/commit metadata rather than relying on green jobs. Supplement missing assets from the original published bundle, verify GitHub's SHA-256, and preserve existing version tags.
+- Validation: actionlint v1.7.12 passed; original log `/tmp/songloft-release-20261115-flutter-linux.log`. Only packaging configuration changed; repackaging and CI acceptance follow this delivery. Not run: desktop playback and installation experience.
+- Done right: the [Linux job](https://github.com/songloft-org/songloft-player/actions/runs/43671029622/job/132680883591) for repair `968148149781f3869cde11bfa8329393cdf18f67` successfully packaged and uploaded all 4 Linux files; log `/tmp/songloft-release-20261115-appimage-ci-fixed.log`. Stable asset repair used Ubuntu 24.04 and the original release bundle (GitHub SHA-256 `5801480917b0765ef2128c1294ce5b5476576c635393c921a00aa7cc860af72f`). After extraction, all 35 original files had identical hashes and all 18 ELF files were x86_64. The supplementary AppImage is 33,412,288 bytes; GitHub's returned digest matches local SHA-256 `71fb1c786ebced7750ffe1fd9aab4b87896d4fbefb0f174e5e65b32fe048cb51`. The Release now has all 21 assets; evidence `/tmp/songloft-release-20261115/appimage-repair/verification.json`.
+- Seen 1× (2026-11-15). Configuration repair, remote Linux packaging, and same-version asset repair accepted; the original release tag was preserved.
+
+### CI-001: Validate JNI releases against this build's generated signatures
+
+- Scope: APK validation for standalone Android and the parent repository's Bundle builds; baseline `b1a1a6f6b0efebb6aeae6910afc70fd8f619d2a7`.
+- Evidence: all three ABI APKs compiled in the [failed CI run](https://github.com/songloft-org/songloft-player/actions/runs/43571666848), but the first JNI check failed. The run resolved `shared_preferences_android 2.5.5`, whose generated `getAll` argument changed from `java.util.List` to `byte[]`; the checker still required the 2.5.1 descriptor.
+- Rule and Done right: locate the resolved dependency through `.dart_tool/package_config.json`, read the generated binding's actual descriptor, and compare it exactly with release DEX. Fail when parsing is unsuccessful; do not accept either historical signature or remove coroutine runtime checks. The old checker failed 4 new cases, including incorrectly accepting a new Dart binding paired with an old APK. The fix passes 8 JNI regressions and 1 native contract regression. Parsing was also checked against the actual 2.5.1 and 2.5.5 bindings, using fixture DEX output.
+- Validation: Linux amd64 / Python 3.12.11, `python3 -m unittest discover -s scripts/tests -p '*_test.py'`; logs `/tmp/songloft-flutter-jni-{before,after}.log`. Not run: full local Android compilation and device startup. Actual release checks for all three ABIs are tracked separately in CI for the repair SHA; fixtures are not real APK acceptance.
+- Remote acceptance: the [Android job](https://github.com/songloft-org/songloft-player/actions/runs/43668053572/job/132671758046) for repair `2bc0b44b8120f01bb2b4c50b0c8b55b9a1f79d95` resolved 2.5.5 and passed all 9 script tests, ARM64/ARMv7/x86_64 release APK builds and individual JNI checks, and hot-update patch generation. Log: `/tmp/songloft-flutter-jni-android-ci.log`. Native runtime code was unchanged; device startup remains Not run.
+- Seen 1× (2026-11-15). Script repair, local regressions, and remote three-ABI acceptance complete; full-platform CI and stable publication follow this delivery.
+
+### RESUME-002: Publish large queues before all pages finish
+
+- Scope: playlist resume and paginated queues; baseline 4708c64 plus this working tree.
+- Evidence: the previous implementation retained one temporary track until a full replacement. With a thousand tracks and delayed browser pages, the repair showed 100 tracks first, played the next episode before completion, and finally showed 1000. See the [record](docs/en/playlist-resume-queue.md).
+- Rule and Done right: load neighbours first, publish contiguous windows and remap indices/navigation by song identity. Reusing the current audio must not bypass incomplete queue repair. Hold later requests and assert intermediate queue state, rather than only the final length.
+- Seen 1× (2026-11-14). Local tests and Web passed; native devices Not run, delivery follows this batch's record.
+
+### FAVORITE-001: Session reset must reject old favorite initialization
+
+- Scope: favorite initialization and server change subscriptions, songloft-org/songloft#563.
+- Rule: stopping subscriptions only blocks future events. In-flight domain initialization also needs a session generation; after reset it must not restore old IDs or clear the new initialization state.
+- Evidence and Done right: loading the old FavoriteService in isolation fails the new-session id=2 assertion because a late response restores 1. Generation checks pass. All 831 Flutter tests and analysis passed; `/tmp/songloft-563-extra/flutter-{negative-init,tests,analyze-delivery}.log`.
+- Seen 1× (2026-11-11). Status: new subscription mechanism validation, pre-commit validation; delivery status is tracked in the batch record; [record](docs/en/issue-563.md).
+
+### LAYOUT-006: Bound index lines when narrowing the column
+
+- Scope: playlist song rows, songloft-org/songloft#562.
+- Rule: narrowing index space must keep three-digit numbers and initial hints on separate single lines. Check longer indices, hit areas and large text alongside title width.
+- Evidence and correct implementation: changing 32px to 24px triggered an existing row test with 4px bottom overflow. Bounding index text to one line fixes both regressions. See [record](docs/en/issue-562.md).
+- Seen 1× (2026-11-11). Found and fixed locally; uncommitted and unreleased.
+
 ### LYRIC-005: Old queues without a lyric URL must still read saved lyrics
 
 - Scope: lyric provider, playback restoration and cache, songloft-org/songloft#555; baseline `32339c748af046a30a28744e2af10e533400d95a`.
