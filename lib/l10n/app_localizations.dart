@@ -100,6 +100,48 @@ abstract class AppLocalizations {
     Locale('zh'),
   ];
 
+  /// No description provided for @settingsScanValidationFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法检查目录排除规则，请重试后再扫描。'**
+  String get settingsScanValidationFailed;
+
+  /// No description provided for @settingsScanAllExcluded.
+  ///
+  /// In zh, this message translates to:
+  /// **'所有扫描目录均被排除，请先调整排除设置。'**
+  String get settingsScanAllExcluded;
+
+  /// No description provided for @settingsScanExcludedSummary.
+  ///
+  /// In zh, this message translates to:
+  /// **'因排除规则跳过 {count} 个目录'**
+  String settingsScanExcludedSummary(int count);
+
+  /// No description provided for @settingsScanExcludedByPath.
+  ///
+  /// In zh, this message translates to:
+  /// **'{path} — 命中排除路径：{rule}'**
+  String settingsScanExcludedByPath(String path, String rule);
+
+  /// No description provided for @settingsScanExcludedByName.
+  ///
+  /// In zh, this message translates to:
+  /// **'{path} — 命中排除目录名：{rule}'**
+  String settingsScanExcludedByName(String path, String rule);
+
+  /// No description provided for @settingsScanExcludedHelp.
+  ///
+  /// In zh, this message translates to:
+  /// **'这些目录不会被扫描。如需扫描，请调整排除设置。'**
+  String get settingsScanExcludedHelp;
+
+  /// No description provided for @settingsExcludeDirHelp.
+  ///
+  /// In zh, this message translates to:
+  /// **'名称/路径排除会跳过扫描，保存时也可能移除已入库记录。如果只想扫描歌曲而不自动创建目录歌单，请使用“歌单排除”。'**
+  String get settingsExcludeDirHelp;
+
   /// No description provided for @playlistQueueLoadFailed.
   ///
   /// In zh, this message translates to:
@@ -1106,6 +1148,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'全部'**
   String get filterAll;
+
+  /// No description provided for @libraryViewMusic.
+  ///
+  /// In zh, this message translates to:
+  /// **'音乐'**
+  String get libraryViewMusic;
 
   /// No description provided for @pickerSelectSongs.
   ///
@@ -2169,6 +2217,42 @@ abstract class AppLocalizations {
   /// **'取消全选'**
   String get libraryDeselectAll;
 
+  /// No description provided for @libraryBatchRadioMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'设置电台模式'**
+  String get libraryBatchRadioMode;
+
+  /// No description provided for @libraryBatchRadioModeTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'设置电台播放模式'**
+  String get libraryBatchRadioModeTitle;
+
+  /// No description provided for @libraryBatchRadioModeMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'为选中的 {count} 个电台设置播放模式。'**
+  String libraryBatchRadioModeMessage(int count);
+
+  /// No description provided for @libraryBatchRadioModeUpdateVideo.
+  ///
+  /// In zh, this message translates to:
+  /// **'同时设置视频内容'**
+  String get libraryBatchRadioModeUpdateVideo;
+
+  /// No description provided for @libraryBatchRadioModeAudioHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'仅音频模式会自动关闭视频内容。'**
+  String get libraryBatchRadioModeAudioHint;
+
+  /// No description provided for @libraryBatchRadioModeUpdated.
+  ///
+  /// In zh, this message translates to:
+  /// **'已更新 {updated}/{total} 个电台'**
+  String libraryBatchRadioModeUpdated(int updated, int total);
+
   /// No description provided for @libraryTitle.
   ///
   /// In zh, this message translates to:
@@ -2576,6 +2660,36 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'视频内容'**
   String get libraryVideoToggleTitle;
+
+  /// No description provided for @libraryRadioMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'电台播放模式'**
+  String get libraryRadioMode;
+
+  /// No description provided for @libraryRadioModeAuto.
+  ///
+  /// In zh, this message translates to:
+  /// **'自动'**
+  String get libraryRadioModeAuto;
+
+  /// No description provided for @libraryRadioModeHls.
+  ///
+  /// In zh, this message translates to:
+  /// **'HLS'**
+  String get libraryRadioModeHls;
+
+  /// No description provided for @libraryRadioModeFlv.
+  ///
+  /// In zh, this message translates to:
+  /// **'HTTP-FLV'**
+  String get libraryRadioModeFlv;
+
+  /// No description provided for @libraryRadioModeAudioOnly.
+  ///
+  /// In zh, this message translates to:
+  /// **'仅音频'**
+  String get libraryRadioModeAudioOnly;
 
   /// No description provided for @libraryVideoToggleSubtitle.
   ///
@@ -5430,8 +5544,20 @@ abstract class AppLocalizations {
   /// No description provided for @settingsScanModeReimportDesc.
   ///
   /// In zh, this message translates to:
-  /// **'重新扫描并覆盖所有音乐信息'**
+  /// **'重新扫描文件并保留手动编辑'**
   String get settingsScanModeReimportDesc;
+
+  /// No description provided for @settingsScanResetMetadataOverrides.
+  ///
+  /// In zh, this message translates to:
+  /// **'重置手动编辑的元数据'**
+  String get settingsScanResetMetadataOverrides;
+
+  /// No description provided for @settingsScanResetMetadataOverridesDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'对本次扫描范围内的歌曲使用文件元数据。'**
+  String get settingsScanResetMetadataOverridesDesc;
 
   /// No description provided for @settingsScanDismiss.
   ///
@@ -5448,7 +5574,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsScanExcludeDirSubtitle.
   ///
   /// In zh, this message translates to:
-  /// **'配置扫描时需要忽略的目录'**
+  /// **'分别设置不扫描的目录、不自动创建歌单的目录'**
   String get settingsScanExcludeDirSubtitle;
 
   /// No description provided for @settingsScanModeSkip.

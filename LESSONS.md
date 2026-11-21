@@ -10,6 +10,52 @@
 
 ## 条目
 
+### PLUGIN-001 · 直接验证远程 SVG 的失败路径
+
+- Flutter 基线 `25c4144d8fc6696cd346964c14bc1b6920b99c4b` 的发现页样式首版使用 `SvgPicture.network`。在 Docker Chromium 121 中，代理返回 404 时组件显示了回退，同时旧 SVG 缓存上报未处理错误。横向 SVG 还将 40 像素的图标位撑到 60 像素。
+- 在异步加载中先检查 HTTP 响应并解码，再将有效绘制数据交给组件。为图标外层设置紧约束。用同一个 390 像素 Web 夹具检查代理直连重试、坏图、缺失图和非正方形 SVG。修正后页面无未处理异常，图标位宽度为 40 像素。
+- Seen 1× (2026-11-21)。
+
+### CI-005：Android 发布必须校验跨 job 的实际产物
+
+- [Flutter dev CI](https://github.com/songloft-org/songloft-player-flutter/actions/runs/44741264627)的 Android job 已校验通用 APK 并生成三个 ABI 的补丁，迁移 Bundle 后漏了上传标准版产物。发布 job 仍成功，`dev` 缺少 APK、补丁和版本清单。
+- 将 `apk-output/` 上传给发布 job。Android job 成功时，在替换现有 Release 之前检查 APK、版本清单及三个 ABI 的补丁和清单。
+- Seen 1× (2026-11-21)。
+
+### CI-004：双包流水线把公共辅助产物保留在构建目录之外
+
+- Flutter Windows 标准版打包成功，后续 Bundle 中的 Go 后端和客户端也都编译成功。打包器重建 `build/` 后，Bundle 打 ZIP 时找不到此前已编译的 WebView 命中测试程序。在 `RUNNER_TEMP` 构建该程序，标准 ZIP 与 Bundle ZIP 都从同一路径读取。[Windows CI](https://github.com/songloft-org/songloft-player/actions/runs/44481909546/job/135416370687)
+- 同次 macOS Bundle 已编译应用和后端，`lipo -verify_arch` 却拒绝命令参数。使用 `lipo -archs` 读取实际的架构列表并核对 arm64 与 x86_64。在真实 Mac 上通用夹具通过，单架构夹具被拒绝。Windows 真机 PowerShell 模拟重建 `build/` 后成功复制临时目录里的辅助程序。完整桌面打包 CI 待复验。[macOS CI](https://github.com/songloft-org/songloft-player/actions/runs/44481909546/job/135416370907)
+- Seen 1× (2026-11-19)。
+
+### CI-003：发布接口校验使用 Git 中提交的清单
+
+- Windows Bundle 已成功检出公开后端，接口比对仍因工作树清单被转换为 CRLF 而退出。日志中四个接口的签名完全一致。[Windows CI](https://github.com/songloft-org/songloft-player/actions/runs/44479533779/job/135408165785)
+- 用 `git show HEAD:mobile/export_surface.txt` 读取构建提交中的清单。用 `core.autocrlf=true` 检出同一后端提交 `1861c33` 后执行实际 composite action 脚本，旧比对失败，修复后通过。
+- Seen 1× (2026-11-19)。
+
+### LYRIC-006 区分行内时间戳与普通 LRC 重复行
+
+- 逐字歌词解析与播放 Provider 使用基线 `f05d80448a99c128e520a258555e339caf639bf4` 验证。[songloft-org/songloft-player#54](https://github.com/songloft-org/songloft-player/issues/54)
+- 旧播放入口把 `[00:01.000]今[00:01.250]天` 拆成相同的两行，能复现截图症状。旧逐字解析还会漏掉第一个尖括号前的词，只有行时间的 `lxlyric` 会盖过带逐字时间的主歌词。新增三项回归均在旧实现上失败。报告人的原始歌词未提供。
+- 正文分隔的单方括号时间戳表示字词时间，连续行首标签仍表示副歌等整行重复。通过播放入口检查混合歌词、末字显式结束时间、翻译和缓存重新加载。
+- Seen 1× (2026-11-18)。
+
+### MENU-001：共享队列能力必须逐个核对歌曲行适配器的入口
+
+- 范围：歌单与收藏菜单，songloft-org/songloft#572；基线 `e8ccdcc4a765356c0bd6dc0c64fc04c0d94aa521`。
+- 证据：曲库行已接入 `playSongNext`，歌单/收藏的独立行适配器却没有回调与菜单项；12 项真实页面回归在隔离旧源码上均因菜单缺项失败。
+- 规则与 Done right：沿页面 → 行适配器 → 菜单 → 现有队列命令核对入口，测试只排队选中歌曲且不拉取/替换来源歌单；新页面检查与既有队列规则测试共同覆盖行为。验证及原生边界见 [#572 记录](docs/cn/issue-572.md)。
+- Seen 1× (2026-11-17)。状态：本地实现与验证完成；授权交付的提交及 CI 状态见任务记录，未创建正式版本。
+
+### LICENSE-001：许可证核对必须覆盖登录页打包的协议副本
+
+- 范围：Flutter 登录页 `assets/legal/TERMS{,.en}.md`；基线 `0427678e9f6aa0977dada8653325a2e0844e7e4e`。
+- 证据：`LICENSE`、README、`pubspec.yaml` 与父仓库协议均为 Apache-2.0，但登录页按语言加载的两份资源在「服务说明」「知识产权」仍共四处写 GPL-3.0；只检查仓库根声明会漏掉用户实际看到的副本。
+- 规则与 Done right：变更许可证声明时检查实际资源加载路径及 pubspec 登记，同步中英文的两处声明与更新日期；第三方组件的 LGPL/GPL 声明按其真实许可证保留。本次仅修正文案。
+- 验证：Linux，Python 静态核对资源路径、登记、四处 Apache-2.0 声明及父协议对应行，`git diff --check`；记录及工作树差异 SHA-256 见 `/tmp/songloft-flutter-terms-20261117.json`。Not run：App 构建、测试与实际弹窗操作，仅修改 Markdown 资源。
+- Seen 1× (2026-11-17)。状态：本地文案修正，未提交或发布。
+
 ### CI-002：发布验收必须核对资产，AppImage 显式指定架构
 
 - 范围：Linux AppImage 打包和正式 Release；发布源码 `65dc1d978705a0f83ae6f8bbc226c489f48c946e`。
@@ -174,3 +220,9 @@
 - 规则：背景取色与前景一起设计；半透明文本要先合成到实际背景再测对比度，不能把 Material 在默认 surface 上的保障直接套到任意封面遮罩。缺失/失败封面要核对统一兜底，增强对比度要覆盖动态图层。
 - Done right：统一 `PlayerBackdrop` 将取色混合到当前 surface，按背景加强强调色；当前行/翻译/罗马音/逐字共用完整对比度。六种内置配色与极端封面的亮暗渐变采样通过，完整 716 项测试、静态分析、嵌入构建通过；实际浏览器切歌及缺失/失败封面比对见 [#523 记录](docs/cn/issue-523.md)。Not run：原生真机户外验收。
 - Seen 1× (2026-10-15)。状态：经验，未提交工作树对象见任务记录；发布状态另按 Git/CI 核对。
+
+### BUNDLE-FFMPEG-001：Bundle 必须复用固定的 FFmpeg Release 解析
+
+- 范围：Flutter Bundle 的 Android、桌面和 iOS 构建。
+- 规则：先解析 `ffmpeg-resolution.json`，再按平台与 ABI 校验资产摘要。Android 通过 APK 原生文件目录安装工具，桌面启动器传入包内工具路径，iOS 编译时链接静态库；不要在各 job 读取滚动 `latest` 文件。
+- Seen 1× (2026-11-20)。[后端 Bundle CI](https://github.com/songloft-org/songloft/actions/runs/44754365874)复用同一解析记录，生成五个平台的 Flutter 测试包。设备安装与播放另行验收。

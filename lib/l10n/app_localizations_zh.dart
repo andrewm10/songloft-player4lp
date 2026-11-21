@@ -9,6 +9,34 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get settingsScanValidationFailed => '无法检查目录排除规则，请重试后再扫描。';
+
+  @override
+  String get settingsScanAllExcluded => '所有扫描目录均被排除，请先调整排除设置。';
+
+  @override
+  String settingsScanExcludedSummary(int count) {
+    return '因排除规则跳过 $count 个目录';
+  }
+
+  @override
+  String settingsScanExcludedByPath(String path, String rule) {
+    return '$path — 命中排除路径：$rule';
+  }
+
+  @override
+  String settingsScanExcludedByName(String path, String rule) {
+    return '$path — 命中排除目录名：$rule';
+  }
+
+  @override
+  String get settingsScanExcludedHelp => '这些目录不会被扫描。如需扫描，请调整排除设置。';
+
+  @override
+  String get settingsExcludeDirHelp =>
+      '名称/路径排除会跳过扫描，保存时也可能移除已入库记录。如果只想扫描歌曲而不自动创建目录歌单，请使用“歌单排除”。';
+
+  @override
   String get playlistQueueLoadFailed => '播放队列加载未完成，已保留已加载的歌曲；请点继续播放重试。';
 
   @override
@@ -548,6 +576,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get filterAll => '全部';
+
+  @override
+  String get libraryViewMusic => '音乐';
 
   @override
   String get pickerSelectSongs => '选择歌曲';
@@ -1161,6 +1192,28 @@ class AppLocalizationsZh extends AppLocalizations {
   String get libraryDeselectAll => '取消全选';
 
   @override
+  String get libraryBatchRadioMode => '设置电台模式';
+
+  @override
+  String get libraryBatchRadioModeTitle => '设置电台播放模式';
+
+  @override
+  String libraryBatchRadioModeMessage(int count) {
+    return '为选中的 $count 个电台设置播放模式。';
+  }
+
+  @override
+  String get libraryBatchRadioModeUpdateVideo => '同时设置视频内容';
+
+  @override
+  String get libraryBatchRadioModeAudioHint => '仅音频模式会自动关闭视频内容。';
+
+  @override
+  String libraryBatchRadioModeUpdated(int updated, int total) {
+    return '已更新 $updated/$total 个电台';
+  }
+
+  @override
   String get libraryTitle => '曲库';
 
   @override
@@ -1371,6 +1424,21 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get libraryVideoToggleTitle => '视频内容';
+
+  @override
+  String get libraryRadioMode => '电台播放模式';
+
+  @override
+  String get libraryRadioModeAuto => '自动';
+
+  @override
+  String get libraryRadioModeHls => 'HLS';
+
+  @override
+  String get libraryRadioModeFlv => 'HTTP-FLV';
+
+  @override
+  String get libraryRadioModeAudioOnly => '仅音频';
 
   @override
   String get libraryVideoToggleSubtitle => '此链接含视频画面，开启后播放页渲染画面、投屏按视频推送';
@@ -2960,7 +3028,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsScanModeSkipDesc => '仅导入新发现的音乐文件';
 
   @override
-  String get settingsScanModeReimportDesc => '重新扫描并覆盖所有音乐信息';
+  String get settingsScanModeReimportDesc => '重新扫描文件并保留手动编辑';
+
+  @override
+  String get settingsScanResetMetadataOverrides => '重置手动编辑的元数据';
+
+  @override
+  String get settingsScanResetMetadataOverridesDesc => '对本次扫描范围内的歌曲使用文件元数据。';
 
   @override
   String get settingsScanDismiss => '关闭提示';
@@ -2969,7 +3043,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsScanExcludeDirTitle => '排除目录设置';
 
   @override
-  String get settingsScanExcludeDirSubtitle => '配置扫描时需要忽略的目录';
+  String get settingsScanExcludeDirSubtitle => '分别设置不扫描的目录、不自动创建歌单的目录';
 
   @override
   String get settingsScanModeSkip => '跳过已存在';

@@ -56,7 +56,7 @@ show_help() {
     echo "  web            构建 Web 独立部署版（standalone）"
     echo "  web-embedded   构建 Web 嵌入版（embedded，用于 Go 后端嵌入）"
     echo "  linux          构建 Linux 版（bundle + deb/rpm/appimage，需要 fastforge）"
-    echo "  windows        构建 Windows 版（bundle + exe/msix/zip，需要 fastforge）"
+    echo "  windows        构建 Windows 版（bundle + exe/zip，需要 fastforge）"
     echo "  macos          构建 macOS 版（.app + dmg，需要 fastforge，仅 macOS 可用）"
     echo "  android        构建 Android 版（APK + AAB）"
     echo "  ios            构建 iOS 版（.app + ipa，仅 macOS 可用）"
@@ -389,7 +389,7 @@ build_windows() {
         cd "$FRONTEND_DIR"
     fi
 
-    # 3. 使用 fastforge 生成安装包（exe/msix）
+    # 3. 使用 fastforge 生成 EXE 安装包
     if command -v fastforge &>/dev/null; then
         echo -e "${BLUE}[Windows]${NC} 使用 fastforge 生成安装包..."
 
@@ -412,20 +412,6 @@ build_windows() {
             echo -e "${YELLOW}⚠ [Windows]${NC} 未安装 Inno Setup，跳过 EXE 构建。安装方法：从 https://jrsoftware.org/isinfo.php 下载 Inno Setup 并将 iscc 添加到 PATH"
         fi
 
-        # MSIX 包
-        echo -e "${BLUE}[Windows]${NC} 构建 MSIX 包..."
-        if fastforge package --platform windows --targets msix 2>&1 | tee -a "$log_file"; then
-            local msix_file
-            msix_file=$(find dist -maxdepth 2 -name "*.msix" -print -quit 2>/dev/null)
-            if [ -n "$msix_file" ]; then
-                cp "$msix_file" "$output/"
-                echo -e "${GREEN}✓ [Windows]${NC} MSIX 包构建完成"
-            else
-                echo -e "${YELLOW}⚠ [Windows]${NC} 未找到 MSIX 产物"
-            fi
-        else
-            echo -e "${YELLOW}⚠ [Windows]${NC} MSIX 包构建失败，跳过"
-        fi
     else
         echo -e "${YELLOW}⚠ [Windows]${NC} 未安装 fastforge，跳过安装包构建。安装命令：dart pub global activate fastforge"
     fi
@@ -498,15 +484,16 @@ build_android() {
 
     echo -e "${BLUE}[Android]${NC} 开始构建 Android 版本..."
     cd "$FRONTEND_DIR"
-    mkdir -p "$output"
+    mkdir -p "$output/apk"
 
-    # 构建 APK（split-per-abi 生成多架构包）
-    flutter build apk --release --split-per-abi "${FLUTTER_VERSION_ARGS[@]}" 2>&1 | tee -a "$log_file"
-    # 复制 APK 产物到输出目录
-    if [ -d "build/app/outputs/flutter-apk" ]; then
-        cp -r build/app/outputs/flutter-apk "$output/apk"
-        echo -e "${GREEN}✓ [Android]${NC} APK 构建完成"
-    fi
+    flutter build apk --release "${FLUTTER_VERSION_ARGS[@]}" 2>&1 | tee -a "$log_file"
+    cp build/app/outputs/flutter-apk/app-release.apk "$output/apk/"
+    # 清理重复使用输出目录时留下的旧分架构产物。
+    local abi
+    for abi in arm64-v8a armeabi-v7a x86_64; do
+        rm -f "$output/apk/app-$abi-release.apk" "$output/apk/flutter-apk/app-$abi-release.apk"
+    done
+    echo -e "${GREEN}✓ [Android]${NC} APK 构建完成"
 
     # 构建 AAB（App Bundle）
     flutter build appbundle --release "${FLUTTER_VERSION_ARGS[@]}" 2>&1 | tee -a "$log_file"

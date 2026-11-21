@@ -10,6 +10,52 @@ Include rule, scope, full owner/repo#number, failure/fix commit SHAs, actual val
 
 ## Entries
 
+### PLUGIN-001 · Verify failure paths for remote SVGs
+
+- The initial discovery tile on Flutter baseline `25c4144d8fc6696cd346964c14bc1b6920b99c4b` used `SvgPicture.network`. In Docker Chromium 121, a proxy 404 displayed the fallback and triggered an unhandled exception from the old SVG cache. A wide SVG also expanded the 40 px icon slot to 60 px.
+- Check HTTP responses and decode asynchronously before passing drawable bytes to the widget. Apply tight constraints to the icon slot. The same 390 px Web fixture checked direct retry, corrupt and missing images, and a non-square SVG. The corrected page reported no unhandled errors and held the slot at 40 px.
+- Seen 1× (2026-11-21).
+
+### CI-005: Verify the Android artifacts passed between jobs
+
+- In [Flutter dev CI](https://github.com/songloft-org/songloft-player-flutter/actions/runs/44741264627), the Android job verified the universal APK and built patches for three ABIs. The Bundle migration had removed the Standard artifact upload. Publishing succeeded and left `dev` without the APK, patches, and version manifests.
+- Upload `apk-output/` to the publishing job. When the Android job succeeds, check the APK, version metadata, and all three ABI patches and manifests before replacing the existing Release.
+- Seen 1× (2026-11-21).
+
+### CI-004: Keep shared packaging helpers outside the app build directory
+
+- The Flutter Windows standard package built successfully, as did the Bundle app and Go backend. After the packager recreated `build/`, the Bundle ZIP step could no longer find the compiled WebView hit-test helper. Build it in `RUNNER_TEMP` and copy from there into both the standard and Bundle ZIPs. [Windows CI](https://github.com/songloft-org/songloft-player/actions/runs/44481909546/job/135416370687)
+- The same macOS Bundle job built the app and backend before `lipo -verify_arch` rejected its arguments. Read the architecture list with `lipo -archs` and check for arm64 and x86_64. A universal fixture passed on a physical Mac and a single-architecture fixture was rejected. PowerShell on a physical Windows machine preserved the staged helper after recreating `build/`. Full packaging CI awaits revalidation. [macOS CI](https://github.com/songloft-org/songloft-player/actions/runs/44481909546/job/135416370907)
+- Seen 1× (2026-11-19).
+
+### CI-003: Read the committed manifest when verifying release interfaces
+
+- Windows Bundle checked out the public backend successfully. Its interface check then failed because the manifest in the working tree had CRLF line endings. All four signatures in the diff were identical. [Windows CI](https://github.com/songloft-org/songloft-player/actions/runs/44479533779/job/135408165785)
+- Use `git show HEAD:mobile/export_surface.txt` to read the manifest from the build commit. The actual composite script failed with the old comparison and passed with the fix on the same backend checkout `1861c33` with `core.autocrlf=true`.
+- Seen 1× (2026-11-19).
+
+### LYRIC-006 Distinguish inline timestamps from standard LRC line repeats
+
+- Validation covers word-timed lyrics and the playback provider at baseline `f05d80448a99c128e520a258555e339caf639bf4`. [songloft-org/songloft-player#54](https://github.com/songloft-org/songloft-player/issues/54)
+- The old playback entry point produced two identical lines from `[00:01.000]今[00:01.250]天`, reproducing the screenshot symptom. The old word parser also dropped text before the first angle tag, and a line-timed `lxlyric` could override word timing in the main lyric. All three new regressions failed on the old implementation. The reporter did not supply the original lyric.
+- Treat single brackets separated by lyric text as word timing and keep consecutive leading tags for repeated lines such as choruses. Check mixed formats, explicit final word ends, translations, and cache reloads through the playback entry point.
+- Seen 1× (2026-11-18).
+
+### MENU-001: Verify each song-row adapter exposes shared queue capabilities
+
+- Scope: playlist and favorites menus, songloft-org/songloft#572; baseline `e8ccdcc4a765356c0bd6dc0c64fc04c0d94aa521`.
+- Evidence: library rows already used `playSongNext`, but the separate playlist/favorites adapter lacked its callback and menu entry. All 12 page regressions fail for the missing entry against isolated old source.
+- Rule and Done right: trace page → row adapter → menu → existing queue command. Assert that only the selected song is scheduled, without fetching/replacing the source playlist; combine page checks with existing queue-rule tests. Results and native boundaries: [#572 record](docs/en/issue-572.md).
+- Seen 1× (2026-11-17). Local implementation and validation complete; task records track authorized delivery commits and CI. No stable version created.
+
+### LICENSE-001: Check the bundled login agreement copies when verifying license declarations
+
+- Scope: Flutter login assets `assets/legal/TERMS{,.en}.md`; baseline `0427678e9f6aa0977dada8653325a2e0844e7e4e`.
+- Evidence: `LICENSE`, README, `pubspec.yaml`, and the parent agreements declare Apache-2.0, but the two language assets loaded by the login page still declared GPL-3.0 four times across Service Description and Intellectual Property. Checking root declarations alone misses the copies users actually see.
+- Rule and Done right: trace the loaded asset paths and pubspec registration when updating license declarations; synchronize both declarations and update dates in Chinese and English. Preserve third-party LGPL/GPL declarations according to their actual licenses. This change only corrects text.
+- Validation: Linux, Python static checks of loaded paths, registration, the four Apache-2.0 declarations, and corresponding parent agreement lines; `git diff --check`. Record and worktree diff SHA-256: `/tmp/songloft-flutter-terms-20261117.json`. Not run: App build, tests, and actual dialog interaction; only Markdown assets changed.
+- Seen 1× (2026-11-17). Local text correction, not committed or released.
+
 ### CI-002: Inspect release assets and specify the AppImage architecture
 
 - Scope: Linux AppImage packaging and stable Releases; released source `65dc1d978705a0f83ae6f8bbc226c489f48c946e`.
@@ -174,3 +220,9 @@ Include rule, scope, full owner/repo#number, failure/fix commit SHAs, actual val
 - Rule: Design background tints and foreground together. Composite translucent text against its actual background before measuring contrast. Material contrast guarantees on its default surface do not automatically apply to cover overlays. Check consistent missing/failed-cover fallbacks and ensure increased contrast covers dynamic layers.
 - Done right: Shared `PlayerBackdrop` blends tints into the current surface and strengthens the accent against that background. Active lines, translations, romaji, and karaoke share full contrast. Light/dark gradient samples across six built-in palettes and extreme covers passed, alongside all 716 tests, static analysis, and embedded builds. Actual browser song switching and missing/failed-cover comparisons are in the [#523 record](docs/en/issue-523.md). Not run: native outdoor device acceptance.
 - Seen 1× (2026-10-15). Status: experience; uncommitted worktree identity is in the task record. Check Git/CI separately for release inclusion.
+
+### BUNDLE-FFMPEG-001: Bundle builds reuse one resolved FFmpeg Release
+
+- Scope: Flutter Bundle Android, desktop, and iOS builds.
+- Rule: resolve `ffmpeg-resolution.json` first, then verify the asset digest for each platform and ABI. Android installs tools through the APK native library directory, desktop launchers pass packaged tool paths, and iOS links the static library at build time. Jobs must not read a rolling `latest` file.
+- Seen 1× (2026-11-20). [Backend Bundle CI](https://github.com/songloft-org/songloft/actions/runs/44754365874) reused one resolution record to produce Flutter test packages for five platforms. Device installation and playback are checked separately.

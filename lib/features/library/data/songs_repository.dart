@@ -105,6 +105,7 @@ class SongsRepository implements ISongsRepository {
     required String url,
     String? coverUrl,
     bool isVideo = false,
+    RadioMode radioMode = RadioMode.automatic,
   }) async {
     try {
       return await songsApi.createRadioSong(
@@ -113,6 +114,7 @@ class SongsRepository implements ISongsRepository {
         url: url,
         coverUrl: coverUrl,
         isVideo: isVideo,
+        radioMode: radioMode,
       );
     } on DioException catch (e) {
       throw _handleError(e);
@@ -130,6 +132,7 @@ class SongsRepository implements ISongsRepository {
     double? duration,
     bool? isLive,
     bool? isVideo,
+    RadioMode? radioMode,
   }) async {
     try {
       return await songsApi.updateSong(
@@ -141,6 +144,24 @@ class SongsRepository implements ISongsRepository {
         coverUrl: coverUrl,
         duration: duration,
         isLive: isLive,
+        isVideo: isVideo,
+        radioMode: radioMode,
+      );
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  @override
+  Future<int> batchUpdateRadioMode(
+    List<int> ids, {
+    required RadioMode radioMode,
+    bool? isVideo,
+  }) async {
+    try {
+      return await songsApi.batchUpdateRadioMode(
+        ids,
+        radioMode: radioMode,
         isVideo: isVideo,
       );
     } on DioException catch (e) {
@@ -179,6 +200,7 @@ class SongsRepository implements ISongsRepository {
     String? title,
     String? artist,
     String? album,
+    List<String> clearFields = const [],
     bool renameFile = false,
   }) async {
     try {
@@ -187,6 +209,7 @@ class SongsRepository implements ISongsRepository {
         title: title,
         artist: artist,
         album: album,
+        clearFields: clearFields,
         renameFile: renameFile,
       );
     } on DioException catch (e) {

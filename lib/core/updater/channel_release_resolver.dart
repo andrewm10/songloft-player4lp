@@ -11,8 +11,10 @@ import '../network/github_proxy_fallback.dart';
 ///   正式版）拿其资产,按文件名取 `browser_download_url`。
 ///
 /// 渠道由编译期 [AppConfig.frontendVersion] 决定,仓库为 [AppConfig.frontendUpdateRepo]
-/// （bundle=父仓库）。前端补丁 manifest（`manifest-<abi>.json`）与后端补丁 manifest
-/// （`backend-manifest-<abi>.json`）都用它解析,保证「任意非最新 → 最新」。
+/// （标准版查 Flutter 仓库，Bundle 查后端仓库）。标准版前端 manifest
+/// （`manifest-<abi>.json`）、Flutter Bundle 聚合 manifest
+/// （`bundle-flutter-version.json`）与后端 manifest
+/// （`bundle-flutter-backend-manifest-<abi>.json`）都用它解析，保证「任意非最新 → 最新」。
 class ChannelReleaseResolver {
   ChannelReleaseResolver({Dio? dio})
     : _dio =
@@ -38,8 +40,8 @@ class ChannelReleaseResolver {
   /// 60 次/小时额度也双倍消耗。记忆化 Future 让第二个调用方直接搭上第一次请求。
   Future<Map<String, String>?>? _stableAssetsFuture;
 
-  /// 解析某资产（如 `manifest-arm64-v8a.json`）在本渠道最新 Release 的下载 URL（未套
-  /// 代理）。找不到返回 null。[githubProxy] 用于给 stable 的 API 请求套代理。
+  /// 解析某资产（如 `bundle-flutter-version.json`）在本渠道最新 Release 的下载 URL
+  /// （未套代理）。找不到返回 null。[githubProxy] 用于给 stable 的 API 请求套代理。
   Future<String?> assetUrl(String assetName, {String? githubProxy}) async {
     if (_isDev) {
       return 'https://github.com/${AppConfig.frontendUpdateRepo}'

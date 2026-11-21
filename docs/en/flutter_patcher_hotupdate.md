@@ -18,10 +18,10 @@ This doc describes songloft-player's **frontend self-hosted Android hot update**
 
 ## Core model: baseline-free + auto-publish + compatibility key
 
-- **Baseline-free**: the client fetches the **latest of its channel** — dev → rolling tag `dev`; stable → GitHub `/releases/latest` (dev is a prerelease, so latest returns the newest stable). Resolved by `lib/core/updater/channel_release_resolver.dart`; any non-latest → latest.
+- **Baseline-free**: the Bundle client fetches the **latest backend Release of its channel** — dev → rolling tag `dev`; stable → GitHub `/releases/latest` (dev is a prerelease, so latest returns the newest stable). Resolved by `lib/core/updater/channel_release_resolver.dart`; any non-latest → latest.
 - **Auto-publish**: `build-and-release.yml`'s `build-android` job runs `dart run flutter_patcher:pack` on every release, producing `patch-<abi>-<commit>.zip` + `manifest-<abi>.json` uploaded with the release (`arm64-v8a` / `armeabi-v7a` / `x86_64`). **The manual `patch-release.yml` is gone.**
 - **Comparison**: dev by **git commit hash**; stable by **version number** (semver, `lib/core/updater/version_compare.dart`). Already-applied (`flutter_patcher.currentVersion == patchLabel`) is skipped.
-- **Compatibility key instead of a versionCode baseline**: `libapp.so` inherently binds to the host APK's **versionCode** (engine binding). Note that with `--split-per-abi` gradle rewrites each ABI APK's versionCode to "ABI offset × 1000 + pubspec base" (e.g. arm64-v8a = 2001), so CI reads the **real value** from the per-ABI APK via aapt and writes it into the manifest/patch; this project's pubspec `+N` is **constant** (CI does not bump it per build), so old and new builds of the same ABI share the same versionCode and cross-version hot update works naturally — versionCode is an **automatic compatibility proxy, not a hand-picked baseline**. The client additionally compares `AppConfig.flutterBinding` (= CI `FLUTTER_VERSION`) with the manifest's `flutterBinding`: different → not hot-patchable (guards against same versionCode but a changed Flutter engine crashing) → the "incompatible / full-APK" branch. Only a deliberate pubspec `+N` bump (usually alongside engine/native changes) forces the full APK.
+- **Version code and engine compatibility** — Gradle sets a minimum `versionCode` of 4002 for the universal APK so it can replace older split APKs, whose highest code was 4001. CI reads the actual code from the APK with aapt and writes it to every ABI-specific frontend patch and manifest. The client checks the version code, Flutter engine key (`flutterBinding`), and native contract. A version-code or engine mismatch requires a full APK.
 
 ## Client flow (startup check + manual)
 
@@ -36,17 +36,17 @@ Entry: `ShellLayout.initState` calls `PatchUpdateDialog.maybeShow` once per sess
 
 ## Hosting & URL convention
 
-Patches are uploaded as assets with the corresponding Release; the repo is decided by `AppConfig.frontendUpdateRepo` (standard = `songloft-org/songloft-player`; Bundle = parent repo `songloft-org/songloft`), and the client switches by channel automatically, no code change.
+Patches are uploaded to the corresponding channel Release. Standard uses `manifest-<abi>.json` / `patch-*` in the Flutter client Release. Bundle uses `bundle-flutter-version.json` / `bundle-patch-*` in the backend Release. The client selects assets by `HAS_BACKEND` and channel.
 
-- manifest: `https://github.com/<repo>/releases/download/<tag>/manifest-<abi>.json`
+- Standard manifest: `https://github.com/songloft-org/songloft-player-flutter/releases/download/<tag>/manifest-<abi>.json`; Bundle uses `bundle-flutter-version.json`.
   - stable: `<tag>` = `v<version>` (resolved via `/releases/latest`); dev: `<tag>` = `dev`
-  - content is `PatchCheckResult` shaped: `{"hasUpdate":true,"patch":{"version","semanticVersion","gitCommit","flutterBinding","targetVersionCode","patchUrl","md5"}}` (`version` is the patch label in the form `<semver>-<gitCommit>`)
-- patch package: `patch-<abi>-<commit>.zip` in the same Release (md5 over the zip)
+  - Bundle content is `{"hasUpdate":true,"patches":{"<abi>":{"version","semanticVersion","gitCommit","flutterBinding","targetVersionCode","patchUrl","md5"}}}`. Standard content uses one `patch` object.
+- Patch package: `patch-<abi>-<commit>.zip` for standard and `bundle-patch-<abi>-<commit>.zip` for Bundle (md5 over the zip)
 - **Backward compatibility**: when a legacy manifest lacks `semanticVersion` / `gitCommit` / `flutterBinding`, the client falls back to the old "`hasUpdate` + versionCode binding + already-applied guard" behavior.
 
 ## Publishing (`build-and-release.yml`'s `build-android`, automatic)
 
-Every release (tag `dev` or `v<x.y.z>`) automatically runs: `flutter build apk --release --split-per-abi` → for `arm64-v8a` / `armeabi-v7a` / `x86_64` each `dart run flutter_patcher:pack --apk <abi apk> --version <semver>-<commit> --target-version-code <vc> --abi <abi>` → produces `patch-<abi>-<commit>.zip` + `manifest-<abi>.json` → uploaded with the release. **No manual workflow, no cherry-pick, no `patch_label` input.**
+The Flutter client Release publishes standard `manifest-<abi>.json` and `patch-<abi>-<commit>.zip` assets. The backend Release's Flutter Bundle job creates `bundle-flutter-version.json`, `bundle-patch-<abi>-<commit>.zip`, and the backend manifests from one Bundle APK.
 
 ## Release discipline
 
@@ -56,7 +56,7 @@ Every release (tag `dev` or `v<x.y.z>`) automatically runs: `flutter build apk -
 
 ## Verification
 
-1. `flutter analyze` passes; `flutter build apk --release --split-per-abi` succeeds.
+1. `flutter analyze` passes; `flutter build apk --release` succeeds.
 2. Install an old dev / stable APK of some ABI on a real device.
 3. Ship an update (change one visible Dart thing) → open the app → "Update available" dialog lists the frontend component → pick proxy → download → restart → see the change = success.
 4. Incompatible path: a new build with an upgraded Flutter engine → `flutterBinding` mismatch → opening the app shows "New version required" → navigates to `/settings`.

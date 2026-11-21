@@ -9,6 +9,37 @@ class AppLocalizationsEs extends AppLocalizations {
   AppLocalizationsEs([String locale = 'es']) : super(locale);
 
   @override
+  String get settingsScanValidationFailed =>
+      'No se pudieron comprobar las exclusiones. Inténtalo de nuevo antes de escanear.';
+
+  @override
+  String get settingsScanAllExcluded =>
+      'Todos los directorios están excluidos. Ajusta primero las exclusiones.';
+
+  @override
+  String settingsScanExcludedSummary(int count) {
+    return 'Se omiten $count directorios por las reglas de exclusión';
+  }
+
+  @override
+  String settingsScanExcludedByPath(String path, String rule) {
+    return '$path — excluido por ruta: $rule';
+  }
+
+  @override
+  String settingsScanExcludedByName(String path, String rule) {
+    return '$path — excluido por nombre de carpeta: $rule';
+  }
+
+  @override
+  String get settingsScanExcludedHelp =>
+      'Estos directorios no se escanearán. Ajusta las exclusiones para incluirlos.';
+
+  @override
+  String get settingsExcludeDirHelp =>
+      'Las exclusiones por nombre o ruta omiten el escaneo y pueden eliminar registros de la biblioteca al guardar. Para escanear canciones sin crear listas por carpeta, usa las exclusiones de listas.';
+
+  @override
   String get playlistQueueLoadFailed => '播放队列加载未完成，已保留已加载的歌曲；请点继续播放重试。';
 
   @override
@@ -576,6 +607,9 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get filterAll => 'Todas';
+
+  @override
+  String get libraryViewMusic => 'Música';
 
   @override
   String get pickerSelectSongs => 'Seleccionar canciones';
@@ -1218,6 +1252,31 @@ class AppLocalizationsEs extends AppLocalizations {
   String get libraryDeselectAll => 'Deseleccionar todo';
 
   @override
+  String get libraryBatchRadioMode => 'Establecer modo de radio';
+
+  @override
+  String get libraryBatchRadioModeTitle =>
+      'Establecer modo de reproducción de radio';
+
+  @override
+  String libraryBatchRadioModeMessage(int count) {
+    return 'Aplicar un modo de reproducción a $count emisoras seleccionadas.';
+  }
+
+  @override
+  String get libraryBatchRadioModeUpdateVideo =>
+      'Establecer también el contenido de vídeo';
+
+  @override
+  String get libraryBatchRadioModeAudioHint =>
+      'El modo solo audio siempre desactiva el contenido de vídeo.';
+
+  @override
+  String libraryBatchRadioModeUpdated(int updated, int total) {
+    return 'Se actualizaron $updated/$total emisoras';
+  }
+
+  @override
   String get libraryTitle => 'Biblioteca';
 
   @override
@@ -1436,6 +1495,21 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get libraryVideoToggleTitle => 'Contenido de video';
+
+  @override
+  String get libraryRadioMode => 'Modo de reproducción de radio';
+
+  @override
+  String get libraryRadioModeAuto => 'Automático';
+
+  @override
+  String get libraryRadioModeHls => 'HLS';
+
+  @override
+  String get libraryRadioModeFlv => 'HTTP-FLV';
+
+  @override
+  String get libraryRadioModeAudioOnly => 'Solo audio';
 
   @override
   String get libraryVideoToggleSubtitle =>
@@ -3143,7 +3217,15 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get settingsScanModeReimportDesc =>
-      'Volver a escanear y sobrescribir toda la información de música';
+      'Volver a escanear los archivos y conservar los cambios manuales';
+
+  @override
+  String get settingsScanResetMetadataOverrides =>
+      'Restablecer los metadatos editados manualmente';
+
+  @override
+  String get settingsScanResetMetadataOverridesDesc =>
+      'Usar los metadatos de los archivos para las canciones incluidas en el escaneo.';
 
   @override
   String get settingsScanDismiss => 'Descartar';

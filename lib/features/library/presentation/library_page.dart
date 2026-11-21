@@ -28,6 +28,7 @@ import 'widgets/folder_browse_view.dart';
 import 'widgets/library_view_switcher.dart';
 import 'widgets/tag_grid_view.dart';
 import 'widgets/song_list_tile.dart';
+import 'widgets/batch_radio_mode_dialog.dart';
 
 /// 曲库统一浏览页。
 ///
@@ -132,14 +133,21 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     });
   }
 
-  /// 扁平视图首次进入 / 切换时，把 type 过滤同步到共享的 songsListProvider。
+  /// 扁平视图首次进入 / 切换时，把歌曲类型和歌单排除条件同步到共享 provider。
   void _scheduleFlatSync(String key) {
     if (!isFlatLibraryView(key)) return;
     if (_syncedFlatKey == key) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _syncedFlatKey = key;
-      ref.read(songsListProvider.notifier).setTypeFilter(flatViewType(key));
+      final isAllMusic = key == 'all';
+      ref
+          .read(songsListProvider.notifier)
+          .setLibraryFilter(
+            type: flatViewType(key),
+            excludePlaylistLabels:
+                isAllMusic ? AppConstants.musicExcludePlaylistLabels : null,
+          );
     });
   }
 
@@ -272,7 +280,11 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   Future<void> _playAll(SongsListState state) async {
     final total = await ref
         .read(playerStateProvider.notifier)
-        .playAllSongs(keyword: state.keyword, type: state.type);
+        .playAllSongs(
+          keyword: state.keyword,
+          type: state.type,
+          excludePlaylistLabels: state.excludePlaylistLabels,
+        );
     if (!mounted) return;
     final l10n = AppLocalizations.of(context);
     if (total < 0) {
@@ -503,6 +515,15 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                       songIds: state.selectedSongIds.toList(),
                     ),
           ),
+          if (selected == 'radio')
+            SelectionActionButton(
+              icon: Icons.settings_input_antenna,
+              label: l10n.libraryBatchRadioMode,
+              onPressed:
+                  state.selectedSongIds.isEmpty
+                      ? null
+                      : () => _showBatchRadioModeDialog(context),
+            ),
           SelectionActionButton(
             icon: Icons.delete,
             label: l10n.libraryDeleteWithCount(state.selectedSongIds.length),
@@ -1364,6 +1385,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
       notifier.loadRemainingSongsForCurrentPlaylist(
         keyword: state.keyword,
         type: state.type,
+        excludePlaylistLabels: state.excludePlaylistLabels,
         loadedCount: state.songs.length,
         total: state.total,
       );
@@ -1469,6 +1491,36 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
             message: l10n.libraryDeleteFailed,
           );
         }
+      }
+    }
+  }
+
+  Future<void> _showBatchRadioModeDialog(BuildContext context) async {
+    final count = ref.read(songsListProvider).selectedSongIds.length;
+    final result = await showBatchRadioModeDialog(context, count: count);
+    if (result == null || !context.mounted) return;
+
+    try {
+      final updated = await ref
+          .read(songsListProvider.notifier)
+          .batchUpdateRadioMode(
+            radioMode: result.radioMode,
+            isVideo:
+                result.updateVideo && result.radioMode != RadioMode.audioOnly
+                    ? result.isVideo
+                    : null,
+          );
+      if (context.mounted) {
+        ResponsiveSnackBar.showSuccess(
+          context,
+          message: AppLocalizations.of(
+            context,
+          ).libraryBatchRadioModeUpdated(updated, count),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ResponsiveSnackBar.showError(context, message: error.toString());
       }
     }
   }

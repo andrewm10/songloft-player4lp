@@ -49,6 +49,7 @@ abstract class ISongsRepository {
     required String url,
     String? coverUrl,
     bool isVideo = false,
+    RadioMode radioMode = RadioMode.automatic,
   });
 
   /// 更新歌曲
@@ -61,6 +62,14 @@ abstract class ISongsRepository {
     String? coverUrl,
     double? duration,
     bool? isLive,
+    bool? isVideo,
+    RadioMode? radioMode,
+  });
+
+  /// 批量设置电台播放模式。
+  Future<int> batchUpdateRadioMode(
+    List<int> ids, {
+    required RadioMode radioMode,
     bool? isVideo,
   });
 
@@ -81,6 +90,7 @@ abstract class ISongsRepository {
     String? title,
     String? artist,
     String? album,
+    List<String> clearFields = const [],
     bool renameFile = false,
   });
 

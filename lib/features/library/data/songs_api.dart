@@ -69,7 +69,7 @@ class SongsApi {
   SongsApi(this.dio);
 
   /// 获取歌曲列表
-  /// [type] 歌曲类型：local, remote, radio（可选）
+  /// [type] 歌曲类型：local、remote、radio 的逗号分隔组合（可选）
   /// [keyword] 搜索关键词（可选）
   /// [pathPrefix] 按 file_path 前缀过滤（可选，如 music/Pop）
   /// [limit] 每页数量，默认 20
@@ -162,6 +162,8 @@ class SongsApi {
   /// 返回 facets（含代表封面 cover_url）+ total（去重取值总数）。
   Future<SongFacetResponse> getFacets(
     String field, {
+    String? type,
+    String? excludePlaylistLabels,
     String? keyword,
     int? limit,
     int? offset,
@@ -169,6 +171,10 @@ class SongsApi {
     String? order,
   }) async {
     final queryParams = <String, dynamic>{'field': field};
+    if (type != null && type.isNotEmpty) queryParams['type'] = type;
+    if (excludePlaylistLabels != null && excludePlaylistLabels.isNotEmpty) {
+      queryParams['exclude_playlist_labels'] = excludePlaylistLabels;
+    }
     if (keyword != null && keyword.isNotEmpty) {
       queryParams['keyword'] = keyword;
     }
@@ -348,6 +354,7 @@ class SongsApi {
     required String url,
     String? coverUrl,
     bool isVideo = false,
+    RadioMode radioMode = RadioMode.automatic,
   }) async {
     final songs = await createRadioSongs([
       {
@@ -356,6 +363,7 @@ class SongsApi {
         'url': url,
         'cover_url': coverUrl,
         'is_video': isVideo,
+        if (radioMode != RadioMode.automatic) 'radio_mode': radioMode.value,
       },
     ]);
     return songs.first;
@@ -372,6 +380,7 @@ class SongsApi {
     double? duration,
     bool? isLive,
     bool? isVideo,
+    RadioMode? radioMode,
   }) async {
     final data = <String, dynamic>{};
     if (title != null) data['title'] = title;
@@ -382,12 +391,29 @@ class SongsApi {
     if (duration != null) data['duration'] = duration;
     if (isLive != null) data['is_live'] = isLive;
     if (isVideo != null) data['is_video'] = isVideo;
+    if (radioMode != null) data['radio_mode'] = radioMode.value;
 
     final response = await dio.put<Map<String, dynamic>>(
       '${AppConfig.apiPrefix}/songs/$id',
       data: data,
     );
     return Song.fromJson(response.data!);
+  }
+
+  /// 批量设置电台播放模式。
+  /// POST /api/v1/songs/batch-radio-mode
+  Future<int> batchUpdateRadioMode(
+    List<int> ids, {
+    required RadioMode radioMode,
+    bool? isVideo,
+  }) async {
+    final data = <String, dynamic>{'ids': ids, 'radio_mode': radioMode.value};
+    if (isVideo != null) data['is_video'] = isVideo;
+    final response = await dio.post<Map<String, dynamic>>(
+      '${AppConfig.apiPrefix}/songs/batch-radio-mode',
+      data: data,
+    );
+    return response.data?['updated'] as int? ?? 0;
   }
 
   /// 更新歌曲歌词
@@ -445,6 +471,7 @@ class SongsApi {
     String? genre,
     String? language,
     String? style,
+    List<String> clearFields = const [],
     bool renameFile = false,
   }) async {
     final data = <String, dynamic>{
@@ -455,6 +482,7 @@ class SongsApi {
       if (genre != null) 'genre': genre,
       if (language != null) 'language': language,
       if (style != null) 'style': style,
+      if (clearFields.isNotEmpty) 'clear_fields': clearFields,
       'rename_file': renameFile,
     };
     final response = await dio.put<Map<String, dynamic>>(
