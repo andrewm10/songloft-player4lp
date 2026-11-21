@@ -167,6 +167,12 @@ jobs:
             .github/workflows/build-and-release.yml
         run: |
           set +e
+          # 记录 merge 前的 fork HEAD，merge 后用它将 .github/ 与 patch/ 整体还原为 fork 版本。
+          # 背景：GITHUB_TOKEN 是 GitHub App，无权创建/更新 workflow 文件。merge -X theirs
+          # 会把上游新增/修改的 workflow（如 resolve-backend.yml）带进来；若随 push 推上去
+          # 就会被 GitHub 拒绝（without workflows permission）。之前的 DROPPED_PATHS 只针对
+          # 已知文件、且只清"我方有意删除"的，挡不住上游新增的 workflow，故改为整体还原。
+          FORK_HEAD=$(git rev-parse HEAD)
           if git merge upstream/main -X theirs --no-edit; then
             echo "无冲突，合并完成。"
           else
@@ -223,6 +229,15 @@ jobs:
               git rm -f --quiet -- "$d"
             fi
           done <<< "$DROPPED_PATHS"
+
+          # ★ 关键：把 .github/ 与 patch/ 整体还原为 fork 自己的版本，
+          #   确保本次 push 对 workflow 文件零改动，绕开 GITHUB_TOKEN 的权限红线。
+          #   先从 index + 工作区彻底移除（含上游新增的 resolve-backend.yml 等），
+          #   再从 merge 前的 FORK_HEAD 检出 fork 版本。其余源码照常同步上游。
+          git rm -r -f --cached .github patch
+          rm -rf .github patch
+          git checkout "$FORK_HEAD" -- .github patch
+          echo "=== .github/ 与 patch/ 已还原为 fork 版本（push 对 workflow 零改动）==="
 
           # 自检：我方的构建工作流必须还在，否则不推送以免破坏仓库
           if [ ! -f .github/workflows/build-apk.yml ]; then
